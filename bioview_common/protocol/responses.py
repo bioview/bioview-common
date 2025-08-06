@@ -4,7 +4,8 @@ from enum import Enum
 class Response(Enum): 
     SUCCESS = "success"
     ERROR = "error"
+    WARNING = "warning"
     INFO = "info"
     DEBUG = "debug"
 
-SUPPORTED_COMMANDS = [x.name for x in Response]
+SUPPORTED_RESPONSES = [x.name for x in Response]
