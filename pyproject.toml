@@ -1,0 +1,17 @@
+[project]
+name = "bioview-common"
+version = "0.9.3"
+description = "A collection of common configuration and protocol specification for BioView clients and servers"
+authors = [
+    {name = "Aakash Kapoor",email = "113218196+meowkash@users.noreply.github.com"}
+]
+license = {text = "GPL-v3"}
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
