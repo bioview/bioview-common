@@ -1,1 +1,1 @@
-from .network import get_ip
+from .network import get_ip, get_app_info

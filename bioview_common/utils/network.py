@@ -1,5 +1,7 @@
 import socket 
 
+from bioview_common.constants import APP_VERSION
+
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -13,3 +15,10 @@ def get_ip():
         s.close()
     
     return IP
+
+def get_app_info(): 
+    return {
+        "hostname": socket.gethostname(), # Broadcasted
+        "application": "BioView", # TODO: Add secret 'APP_TOKEN' 
+        "version": APP_VERSION
+    }
