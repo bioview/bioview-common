@@ -1,13 +1,23 @@
-from enum import Enum
+from enum import Enum, auto
 
-# Handle connection as an enum for better clarity
-class ConnectionStatus(Enum):
-    DISCONNECTED = "Not Connected"
+class DeviceStatus(Enum): 
+    NOINIT = "Not Initialized"
     CONNECTING = "Connecting"
-    CONNECTED = "Connected"
+    CONNECTED = "Connected" # Not streaming
+    STREAMING = "Streaming"
+    DISCONNECTED = "Not Connected"
 
+class ServerStatus(Enum): 
+    DEFAULT = auto      # Nothing is going on
+    CLIENT_CONNECTED = auto
+    CLIENT_DISCONNECTED = auto
+    DEVICES_CONNECTED = auto
+    DEVICES_DISCONNECTED = auto 
+    STREAMING = auto
 
-class RunningStatus(Enum):
-    NOINIT = False
-    RUNNING = True
-    STOPPED = False
+class ClientStatus(Enum):
+    DEFAULT = auto      # Nothing is going on
+    SCANNING = auto
+    SERVER_CONNECTED = auto
+    SERVER_DISCONNECTED = auto
+    STREAMING = auto
