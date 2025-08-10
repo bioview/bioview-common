@@ -1,5 +1,10 @@
+from .configuration import Configuration
 from .datasource import DataSource
+from .errors import AuthenticationError, ValidationError
 
 __all__ = [
-    "DataSource"
+    "Configuration",
+    "DataSource",
+    "AuthenticationError", 
+    "ValidationError"
 ]

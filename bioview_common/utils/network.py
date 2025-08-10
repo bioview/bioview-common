@@ -1,4 +1,5 @@
 import socket 
+import ipaddress
 
 from bioview_common.constants import APP_VERSION
 
@@ -16,9 +17,32 @@ def get_ip():
     
     return IP
 
+# Checks if connection request comes from a local origin or a remote origin: This is used for enabling local-only server mode.
+def is_local_request(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+        return (ip.is_loopback or ip.is_private or str(ip) in ['127.0.0.1', '::1', '0.0.0.0'])
+    except ValueError:
+        # If it's not a valid IP, treat as external for safety
+        return False
+
+def get_hostname() -> str:
+    # Attempt to get host-name
+    try:
+        hostname = socket.gethostname()
+        # Validate hostname is not empty or generic
+        if hostname and hostname != 'localhost' and not hostname.startswith('ip-'):
+            return hostname
+    except Exception:
+        pass
+    
+    # Fallback to IP address
+    ip_address = get_ip()
+    return ip_address
+    
 def get_app_info(): 
     return {
-        "hostname": socket.gethostname(), # Broadcasted
+        "hostname": get_hostname(), # Broadcasted
         "application": "BioView", # TODO: Add secret 'APP_TOKEN' 
         "version": APP_VERSION
     }
