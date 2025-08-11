@@ -5,7 +5,9 @@ class Response(Enum):
     # Client-Server connection responses 
     CONNECTION_ACCEPTED = "connection_accepted"
     CONNECTION_REFUSED = "connection_refused"
+    SERVER_CHALLENGE = "server_challenge"
     AUTHENTICATION_SUCCESS = "authentication_success"
+    AUTHENTICATION_FAILURE = "authentication_failure"
 
     # Command execution responses
     SUCCESS = "success"

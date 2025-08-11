@@ -1,6 +1,8 @@
 import socket 
 import ipaddress
 
+from typing import Dict, Any
+
 from bioview_common.constants import APP_VERSION
 
 def get_ip():
@@ -43,6 +45,18 @@ def get_hostname() -> str:
 def get_app_info(): 
     return {
         "hostname": get_hostname(), # Broadcasted
-        "application": "BioView", # TODO: Add secret 'APP_TOKEN' 
-        "version": APP_VERSION
+        "app_name": "BioView", # TODO: Add secret 'APP_TOKEN' 
+        "app_version": APP_VERSION
     }
+
+# Validation for received responses to ensure integrity
+def validate_message_format(data: Dict[str, Any], expected_fields: list) -> bool:
+    """Validate that message contains required fields and proper format"""
+    if not isinstance(data, dict):
+        return False
+    
+    for field in expected_fields:
+        if field not in data:
+            return False
+    
+    return True
