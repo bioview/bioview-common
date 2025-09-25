@@ -43,10 +43,12 @@ def get_hostname() -> str:
     return ip_address
     
 def get_app_info(): 
+    # Information to be broadcasted 
     return {
-        "hostname": get_hostname(), # Broadcasted
-        "app_name": "BioView", # TODO: Add secret 'APP_TOKEN' 
-        "app_version": APP_VERSION
+        "ip": get_ip(),
+        "hostname": get_hostname(),
+        "name": "BioView", 
+        "version": APP_VERSION
     }
 
 # Validation for received responses to ensure integrity
