@@ -50,7 +50,6 @@ extend-exclude = [
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90"]
 ignore = [
     "E203",  # whitespace before ':'
-    "W503",  # line break before binary operator
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided
