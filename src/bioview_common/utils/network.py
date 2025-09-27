@@ -4,7 +4,9 @@ import socket
 from bioview_common.constants import APP_VERSION
 
 
-SHARED_SECRET = "bioview_is_the_best"  # TODO: REPLACE, this is only a placeholder for now
+SHARED_SECRET = (
+    "bioview_is_the_best"  # TODO: REPLACE, this is only a placeholder for now
+)
 
 
 def get_ip():
