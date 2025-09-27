@@ -17,16 +17,14 @@ from types import NoneType
 
 class Configuration:
     def __init__(self, config_dict=None):
-        self.type = None
-        self._ui_parameters = {}
+        if not config_dict:
+            config_dict = {}
 
-        if config_dict:
-            self.type = config_dict.get("type")
+        self.device_type = config_dict.get("device_type", {})
 
-            # Set parameters as attributes
-            parameters = config_dict.get("parameters", {})
-            for param, value in parameters.items():
-                setattr(self, param, value)
+        # Load all parameters from dictionary as attributes
+        for param, value in config_dict.items():
+            setattr(self, param, value)
 
     def get_param(self, param, default_value=None):
         try:
@@ -43,18 +41,10 @@ class Configuration:
             setattr(self, param, value)
 
     def to_dict(self):
-        data = {
+        result = {
             key: value
             for key, value in self.__dict__.items()
             if not key.startswith("_") and not callable(value)
-        }
-
-        # Extract parameters (excluding type and special attributes)
-        parameters = {k: v for k, v in data.items() if k != "type"}
-
-        result = {
-            "type": self.type,
-            "parameters": parameters,
         }
 
         # Store class information for serialization
@@ -63,7 +53,11 @@ class Configuration:
         return result
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(self, data):
+        """
+        While we can construct a configuration for any dictionary, we check if a
+        special class-based configuration can be restored to enable extra features.
+        """
         class_name = data.get("__class__")
         module_name = data.get("__module__")
 
@@ -86,12 +80,12 @@ class Configuration:
                 config_data = {
                     k: v for k, v in data.items() if k not in ["__class__", "__module__"]
                 }
-                return cls(config_data)
+                return self(config_data)
         else:
             config_data = {
                 k: v for k, v in data.items() if k not in ["__class__", "__module__"]
             }
-            return cls(config_data)
+            return self(config_data)
 
     def to_json(self):
         return json.dumps(self.to_dict())
