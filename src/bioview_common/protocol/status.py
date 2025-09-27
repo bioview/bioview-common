@@ -3,11 +3,12 @@ from enum import Enum
 
 class DeviceStatus(Enum):
     NOINIT = "Not Initialized"
+    AVAILABLE = "Available"
+    UNAVAILABLE = "Unavailable"
     CONNECTING = "Connecting"
-    CONNECTED = "Connected"  # Not streaming
+    CONNECTED = "Connected"
     STREAMING = "Streaming"
-    DISCONNECTED = "Not Connected"
-
+    DISCONNECTED = "Disconnected"
 
 class ServerStatus(Enum):
     DEFAULT = "default"  # Nothing is going on
