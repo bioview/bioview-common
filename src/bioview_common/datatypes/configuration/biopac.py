@@ -10,6 +10,9 @@ BASE_BIOPAC_CONFIG = {
     "mpdev_path": None,
 }
 
+MODEL_CODE_MAPPING = {
+    "MP36": 103
+}
 
 class BiopacConfiguration(Configuration):
     def __init__(self, config_dict: dict):
@@ -21,6 +24,7 @@ class BiopacConfiguration(Configuration):
             setattr(self, key, value)
 
         # Set device type
+        self.device_code = MODEL_CODE_MAPPING[self.model]
         self.device_type = DeviceType.BIOPAC
         self.absolute_channel_nums = self.channels
 
