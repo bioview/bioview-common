@@ -1,4 +1,4 @@
-from .logs import log_print
+from .logs import log_print, silence_function
 from .network import SHARED_SECRET, get_app_info, get_ip, is_local_request
 from .type_check import is_dict_of_dicts
 
@@ -8,5 +8,6 @@ __all__ = [
     "get_ip", 
     "get_app_info", 
     "log_print",
+    "silence_function",
     "is_dict_of_dicts"
 ]
