@@ -36,7 +36,7 @@ class USRPConfiguration(Configuration):
             setattr(self, key, value)
 
         # Set device type
-        self.device_type = DeviceType.USRP
+        self.device_type = DeviceType.USRP.value
 
         # Set-up default absolute channel mapping, assuming single device.
         # This assumes that Tx/Rx are always used in pairs

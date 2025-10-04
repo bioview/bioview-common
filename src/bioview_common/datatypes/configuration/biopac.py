@@ -21,7 +21,7 @@ class BiopacConfiguration(Configuration):
             setattr(self, key, value)
 
         # Set device type
-        self.device_type = DeviceType.BIOPAC
+        self.device_type = DeviceType.BIOPAC.value
         self.absolute_channel_nums = self.channels
 
     def get_channels(self):

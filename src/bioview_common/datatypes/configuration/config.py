@@ -27,9 +27,9 @@ class Configuration:
 
         device_type = config_dict.get("device_type", None)
         if device_type and device_type in SUPPORTED_DEVICES:
-            self.device_type = DeviceType(device_type)
+            self.device_type = DeviceType(device_type).value
         else:
-            self.device_type = DeviceType.INVALID
+            self.device_type = DeviceType.INVALID.value
 
     def get_param(self, param, default_value=None):
         try:
