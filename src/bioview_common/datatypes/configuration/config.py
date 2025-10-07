@@ -67,6 +67,8 @@ class Configuration:
             from .usrp import USRPConfiguration as cls
         elif config_type == DeviceType.BIOPAC.value:
             from .biopac import BiopacConfiguration as cls
+        elif config_type == "experiment":
+            from .experiment import ExperimentConfiguration as cls
         else:
             cls = self
 
