@@ -27,7 +27,7 @@ class ExperimentConfiguration(Configuration):
     def get_save_config(self):
         return {
             "enable_save": self.enable_save,
-            "save_dir": self.save_path,
+            "save_dir": self.save_dir,
             "file_name": self.file_name,
         }
 
