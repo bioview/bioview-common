@@ -2,7 +2,15 @@ from .config import Configuration
 
 
 # Generic configuration for any experiment
-BASE_EXPERIMENT_CONFIG = {"enable_save": False, "display_sources": []}
+BASE_EXPERIMENT_CONFIG = {
+    "enable_save": False,
+    "display_sources": [],
+    "file_name": "default",
+    "save_dir": None,
+    "data_sources": [],
+    "enable_instructions": False,
+    "instruction_type": None,
+}
 
 SAVE_PARAMS = ["enable_save", "save_dir", "file_name"]
 
@@ -18,9 +26,9 @@ class ExperimentConfiguration(Configuration):
 
     def get_save_config(self):
         return {
-            "enable_save": getattr(self, "enable_save", False),
-            "save_dir": getattr(self, "save_path", None),
-            "file_name": getattr(self, "file_name", "default"),
+            "enable_save": self.enable_save,
+            "save_dir": self.save_path,
+            "file_name": self.file_name,
         }
 
     def get_display_config(self):
