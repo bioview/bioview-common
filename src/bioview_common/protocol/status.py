@@ -11,14 +11,14 @@ class DeviceStatus(Enum):
     DISCONNECTED = "Disconnected"
 
 
-class ServerStatus(Enum):
-    DEFAULT = "default"  # Nothing is going on
-    CLIENT_CONNECTED = "client_connected"
-    CLIENT_DISCONNECTED = "client_disconnected"
-    DEVICES_CONNECTED = "devices_connected"
-    DEVICES_DISCONNECTED = "devices_disconnected"
-    STREAMING = "streaming"
-
+class ServerStatus(IntEnum):
+    DEFAULT = -1  # Nothing is going on
+    CLIENT_DISCONNECTED = 0
+    CLIENT_CONNECTED = 1
+    DEVICES_DISCONNECTED = 2
+    DEVICES_CONNECTED = 3
+    STREAMING = 4
+    
 
 class ClientStatus(IntEnum):
     """
