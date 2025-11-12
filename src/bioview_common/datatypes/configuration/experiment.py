@@ -5,7 +5,7 @@ from .config import Configuration
 BASE_EXPERIMENT_CONFIG = {
     "enable_save": False,
     "display_sources": [],
-    "file_name": "default",
+    "file_name": "",
     "save_dir": None,
     "data_sources": [],
     "enable_instructions": False,
