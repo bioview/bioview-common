@@ -1,7 +1,7 @@
 from .configuration import Configuration
 from .datasource import DataSource
 from .devices import SUPPORTED_DEVICES, DeviceType
-from .errors import AuthenticationError, ValidationError
+from .errors import AuthenticationError, ValidationError, DeviceError
 from .workers import PausableWorker
 
 __all__ = [
@@ -11,5 +11,6 @@ __all__ = [
     "SUPPORTED_DEVICES",
     "AuthenticationError",
     "ValidationError",
+    "DeviceError",
     "PausableWorker",
 ]

@@ -5,3 +5,7 @@ class AuthenticationError(Exception):
 class ValidationError(Exception):
     """Custom exception for message validation failures"""
     pass
+
+class DeviceError(Exception):
+    """Custom exception for device-related errors"""
+    pass
