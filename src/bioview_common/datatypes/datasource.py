@@ -3,14 +3,13 @@ import json
 
 # This represents a custom data source for the plotting mechanism
 class DataSource:
-    def __init__(self, group_id: str, channel: int, label: str, disp_freq: int):
+    def __init__(self, group_id: str, channel: int, label: str):
         """
         Keeps track of where the data is from (group_id, group_channel)
         """
         self.group_id = group_id
         self.channel = channel
         self.label = label  # Human-readable label for the source
-        self.disp_freq = disp_freq  # Required for plotting
 
     def __eq__(self, other):
         return self.group_id == other.group_id and self.channel == other.channel
@@ -24,9 +23,6 @@ class DataSource:
     def __repr__(self):
         # String display
         return f"{self.label} [{self.group_id}]"
-
-    def get_disp_freq(self):
-        return self.disp_freq
 
     # The following methods allow transmission over sockets
     def to_dict(self):
