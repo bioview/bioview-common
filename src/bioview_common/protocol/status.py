@@ -12,7 +12,8 @@ class DeviceStatus(Enum):
 
 
 class ServerStatus(IntEnum):
-    DEFAULT = -1  # Nothing is going on
+    SHUTDOWN_SERVER = -2  # Signal server to shutdown
+    RESET_SERVER = -1 # Signal server reset
     CLIENT_DISCONNECTED = 0
     CLIENT_CONNECTED = 1
     DEVICES_DISCONNECTED = 2
