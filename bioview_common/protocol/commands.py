@@ -1,6 +1,7 @@
 from enum import Enum 
 
-# Command from client to server 
+# Wire commands: sent from client to server over the control socket. Only the
+# member *name* travels on the wire (see SUPPORTED_COMMANDS / send_command).
 class Command(Enum): 
     # Server specific controls 
     AUTHENTICATE_CLIENT = "authenticate_client"
@@ -14,8 +15,7 @@ class Command(Enum):
     
     # Synchronous
     INITIALIZE_DEVICES = 'initialize_devices'
-    CONNECT_DEVICES = 'connect_devices'
-    DISCONNECT_DEVICES = 'disconnect_device'
+    DISCONNECT_DEVICES = 'disconnect_devices'
     START_STREAMING = 'start_streaming'
     STOP_STREAMING = 'stop_streaming'
     
@@ -23,5 +23,16 @@ class Command(Enum):
     GET_DEVICE_STATUS = 'get_device_status'
     UPDATE_DEVICE_FIRMWARE = 'update_device_firmware'
     UPDATE_RUNNING_PARAMETER = 'update_running_parameter' # Only one parameter update at a time
- 
+
+
+# Internal IPC commands: sent from the server's main process to a device
+# backend subprocess over a multiprocessing.Queue. These never touch the wire.
+class IPCCommand(Enum):
+    CONNECT_DEVICES = 'connect_devices'
+    START_STREAMING = 'start_streaming'
+    STOP_STREAMING = 'stop_streaming'
+    DISCONNECT_DEVICES = 'disconnect_devices'
+    UPDATE_RUNNING_PARAMETER = 'update_running_parameter'
+    SHUTDOWN = 'shutdown'
+
 SUPPORTED_COMMANDS = [x.name for x in Command]

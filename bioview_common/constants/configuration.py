@@ -1,0 +1,7 @@
+from enum import Enum
+
+class SUPPORTED_CONFIGURATION_TYPES(Enum): 
+    USRP = 'USRP'
+    BIOPAC = 'BIOPAC'
+    DUMMY = 'DUMMY'
+    EXPERIMENT = 'EXPERIMENT'

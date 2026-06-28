@@ -27,3 +27,21 @@ def silence_function(func):
             return func(*args, **kwargs)
     
     return wrapper
+import sys
+@contextlib.contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+
+def emit_signal(func, *args, **kwargs):
+    if func is None:
+        return
+    try:
+        func(*args, **kwargs)
+    except Exception:
+        print(f"Unable to emit signal: {repr(func)}")

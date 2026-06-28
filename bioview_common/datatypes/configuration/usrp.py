@@ -1,6 +1,7 @@
 from ..devices import DeviceType
-from .config import Configuration
+from .config import BaseConfig
 
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 """
 We make some general assumptions, specifically -
@@ -11,6 +12,11 @@ We make some general assumptions, specifically -
 """
 
 BASE_USRP_CONFIG = {
+    "tx_gain": [30, 30],
+    "samp_rate": 1e6, 
+    "carrier_freq": 9e8,
+    "rx_gain": [30, 30],
+    "if_freq": [100e3, 110e3],
     "tx_amplitude": [1, 1],
     "rx_channels": [0, 1],
     "tx_channels": [0, 1],
@@ -25,9 +31,10 @@ BASE_USRP_CONFIG = {
     "disp_ds": 10,
 }
 
-
-class USRPConfiguration(Configuration):
+class USRPConfiguration(BaseConfig):
     def __init__(self, config_dict: dict):
+        self.cfg_type = SUPPORTED_CONFIGURATION_TYPES.USRP
+
         # Initialize using default values
         super().__init__(BASE_USRP_CONFIG)
 
@@ -35,14 +42,14 @@ class USRPConfiguration(Configuration):
         for key, value in config_dict.items():
             setattr(self, key, value)
 
-        # Set device type
+        # Set device type. TODO: Remove 
         self.device_type = DeviceType.USRP.value
 
         # Set-up default absolute channel mapping, assuming single device.
         # This assumes that Tx/Rx are always used in pairs
         # This must be updated if using MIMO with multiple USRPs
         self.absolute_channel_nums = self.tx_channels
-
+    
     def get_filter_bw(self):
         if not isinstance(self.if_filter_bw, (list, tuple)):
             return [self.if_filter_bw for _ in self.tx_channels]

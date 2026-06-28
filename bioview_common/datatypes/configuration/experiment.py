@@ -1,4 +1,4 @@
-from .config import Configuration
+from .config import BaseConfig
 
 
 # Generic configuration for any experiment
@@ -13,12 +13,13 @@ BASE_EXPERIMENT_CONFIG = {
 }
 
 SAVE_PARAMS = ["enable_save", "save_dir", "file_name"]
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
-
-class ExperimentConfiguration(Configuration):
+class ExperimentConfiguration(BaseConfig):
     def __init__(self, config_dict: dict):
         # Initialize using default values
         super().__init__(BASE_EXPERIMENT_CONFIG)
+        self.cfg_type = SUPPORTED_CONFIGURATION_TYPES.EXPERIMENT
 
         # Update with provided values
         for key, value in config_dict.items():
