@@ -1,6 +1,6 @@
 [project]
 name = "bioview-common"
-version = "0.9.3.9debug"
+version = "0.9.3.9"
 description = "A collection of common configuration and protocol specification for BioView clients and servers"
 authors = [
     {name = "Aakash Kapoor",email = "113218196+meowkash@users.noreply.github.com"}
