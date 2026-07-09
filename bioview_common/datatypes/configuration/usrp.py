@@ -13,11 +13,12 @@ We make some general assumptions, specifically -
 
 BASE_USRP_CONFIG = {
     "tx_gain": [30, 30],
-    "samp_rate": 1e6, 
+    "samp_rate": 1e6,
     "carrier_freq": 9e8,
     "rx_gain": [30, 30],
     "if_freq": [100e3, 110e3],
     "tx_amplitude": [1, 1],
+    "tx_phase": [0.0, 0.0],
     "rx_channels": [0, 1],
     "tx_channels": [0, 1],
     "rx_subdev": "A:A A:B",
@@ -29,6 +30,39 @@ BASE_USRP_CONFIG = {
     "if_filter_bw": 5e3,
     "save_ds": 100,
     "disp_ds": 10,
+    "signal_scheme": "cw",
+    "calibration": {
+        "enabled": False,
+        "shape": "triangle",
+        "num_pulses": 5,
+        "pulse_duration_s": 0.1,
+        "packet_spacing_s": 1.0,
+        "envelope_freq_hz": 10.0,
+        "modulation_depth": 0.2,
+        "envelope_offset": 0.0,
+        "inject_channels": [0],
+        "record_reference": True,
+    },
+    "dpic_balance": {
+        "auto_on_start": False,
+        "amp_target": 0.5,
+        "phase_step_deg": 0.1,
+        "amp_step": 0.05,
+        "settle_time_s": 0.5,
+    },
+    "fmcw": {
+        "chirp_start_hz": 50e3,
+        "chirp_end_hz": 150e3,
+        "chirp_duration_s": 0.001,
+        "idle_time_s": 0.001,
+    },
+    "pulsed_doppler": {
+        "pulse_width_s": 1e-5,
+        "pri_s": 1e-3,
+        "doppler_if_hz": 100e3,
+    },
+    "channel_map": None,
+    "hardware": None,
 }
 
 class USRPConfiguration(BaseConfig):

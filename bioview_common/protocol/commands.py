@@ -23,6 +23,7 @@ class Command(Enum):
     GET_DEVICE_STATUS = 'get_device_status'
     UPDATE_DEVICE_FIRMWARE = 'update_device_firmware'
     UPDATE_RUNNING_PARAMETER = 'update_running_parameter' # Only one parameter update at a time
+    RUN_DPIC_BALANCE = 'run_dpic_balance'
 
 
 # Internal IPC commands: sent from the server's main process to a device
@@ -33,6 +34,7 @@ class IPCCommand(Enum):
     STOP_STREAMING = 'stop_streaming'
     DISCONNECT_DEVICES = 'disconnect_devices'
     UPDATE_RUNNING_PARAMETER = 'update_running_parameter'
+    RUN_DPIC_BALANCE = 'run_dpic_balance'
     SHUTDOWN = 'shutdown'
 
 SUPPORTED_COMMANDS = [x.name for x in Command]

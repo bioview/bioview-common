@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 class BaseConfig:
     def __init__(self, config_dict=None):
@@ -34,7 +34,37 @@ class BaseConfig:
             if isinstance(value, Enum):
                 value = value.value
             result[key] = value
+        cfg_type = result.get("cfg_type")
+        if cfg_type and "type" not in result:
+            result["type"] = cfg_type
         return result
+
+
+def _resolve_device_type(value: Dict[str, Any]) -> Optional[str]:
+    """Map wire-format ``type`` / ``cfg_type`` fields to backend ``device_type``."""
+    from ..devices import DeviceType
+
+    device_type = value.get("device_type")
+    if device_type in {d.value for d in DeviceType}:
+        return device_type
+
+    cfg_type = value.get("type") or value.get("cfg_type")
+    if not cfg_type:
+        return None
+
+    if isinstance(cfg_type, Enum):
+        cfg_type = cfg_type.value
+
+    mapping = {
+        "USRP": DeviceType.USRP.value,
+        "BIOPAC": DeviceType.BIOPAC.value,
+        "DUMMY": DeviceType.DUMMY.value,
+        "usrp": DeviceType.USRP.value,
+        "biopac": DeviceType.BIOPAC.value,
+        "dummy": DeviceType.DUMMY.value,
+    }
+    key = str(cfg_type)
+    return mapping.get(key) or mapping.get(key.upper()) or mapping.get(key.lower())
 
 class Configuration:
     def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
@@ -55,17 +85,21 @@ class Configuration:
             if key.lower() == "experiment":
                 self.experiment = ExperimentConfiguration(value)
             else:
-                # It is a device key
-                device_type = value.get("device_type")
-                if device_type == DeviceType.USRP.value:
-                    self.devices[key] = USRPConfiguration(value)
-                elif device_type == DeviceType.BIOPAC.value:
-                    self.devices[key] = BiopacConfiguration(value)
-                elif device_type == DeviceType.DUMMY.value:
-                    self.devices[key] = DummyConfiguration(value)
-                else:
-                    # Generic configuration
+                device_type = _resolve_device_type(value)
+                if device_type is None:
                     self.devices[key] = BaseConfig(value)
+                    continue
+
+                payload = dict(value)
+                payload["device_type"] = device_type
+                if device_type == DeviceType.USRP.value:
+                    self.devices[key] = USRPConfiguration(payload)
+                elif device_type == DeviceType.BIOPAC.value:
+                    self.devices[key] = BiopacConfiguration(payload)
+                elif device_type == DeviceType.DUMMY.value:
+                    self.devices[key] = DummyConfiguration(payload)
+                else:
+                    self.devices[key] = BaseConfig(payload)
 
     def to_dict(self) -> Dict[str, Any]:
         result = {}
@@ -92,5 +126,19 @@ class Configuration:
         return self.devices.get(device_id)
 
     def update_device_param(self, device_id: str, param: str, value: Any):
-        if device_id in self.devices:
-            self.devices[device_id].set_param(param, value)
+        if device_id not in self.devices:
+            return
+        from .hardware_params import (
+            GLOBAL_RX_PARAMS,
+            GLOBAL_TX_PARAMS,
+            update_device_rx_param,
+            update_device_tx_param,
+        )
+
+        cfg = self.devices[device_id]
+        if param in GLOBAL_TX_PARAMS:
+            update_device_tx_param(cfg, param, value)
+        elif param in GLOBAL_RX_PARAMS:
+            update_device_rx_param(cfg, param, value)
+        else:
+            cfg.set_param(param, value)
