@@ -10,6 +10,7 @@ from bioview_common import (
     get_unique_path,
     parse_configuration_file,
 )
+from bioview_common.datatypes.configuration.biopac import BiopacConfiguration
 from bioview_common.datatypes.configuration.usrp_channel_map import (
     build_hardware_dict,
     resolve_channel_map,
@@ -19,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DPIC_2X2_CFG = REPO_ROOT / "usrp_dpic_2x2_mimo_cfg.json"
 DUMMY_DPIC_2X2_CFG = REPO_ROOT / "dummy_dpic_2x2_mimo_cfg.json"
 SAMPLE_USRP_CFG = REPO_ROOT / "sample_usrp_cfg.json"
+SAMPLE_USRP_BIOPAC_CFG = REPO_ROOT / "sample_usrp_biopac_cfg.json"
 
 
 def _write_json(tmp_path, data):
@@ -118,6 +120,18 @@ def test_parse_configuration_file_sample_usrp_single_radio():
     assert registry.num_tx == 2
     assert registry.num_rx == 2
     assert dpic == []
+
+
+def test_parse_configuration_file_sample_usrp_biopac():
+    parsed = parse_configuration_file(str(SAMPLE_USRP_BIOPAC_CFG))
+    assert "USRP" in parsed
+    assert "BIOPAC" in parsed
+    usrp = parsed["USRP"]
+    biopac = parsed["BIOPAC"]
+    assert isinstance(usrp, USRPConfiguration)
+    assert isinstance(biopac, BiopacConfiguration)
+    assert biopac.get_param("device_type") == "biopac"
+    assert set((biopac.get_param("hardware") or {}).keys()) == {"BIOPAC_MP36"}
 
 
 def test_configuration_resolves_device_type_from_type_field():
