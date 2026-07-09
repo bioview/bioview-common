@@ -18,6 +18,7 @@ from bioview_common.datatypes.configuration.usrp_channel_map import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DPIC_2X2_CFG = REPO_ROOT / "usrp_dpic_2x2_mimo_cfg.json"
 DUMMY_DPIC_2X2_CFG = REPO_ROOT / "dummy_dpic_2x2_mimo_cfg.json"
+SAMPLE_USRP_CFG = REPO_ROOT / "sample_usrp_cfg.json"
 
 
 def _write_json(tmp_path, data):
@@ -97,6 +98,26 @@ def test_parse_configuration_file_dummy_dpic_2x2_mimo():
     assert dummy.get_type() == SUPPORTED_CONFIGURATION_TYPES.DUMMY
     assert dummy.get_param("hardware") is not None
     assert dummy.get_param("channel_map") is not None
+
+
+def test_parse_configuration_file_sample_usrp_single_radio():
+    parsed = parse_configuration_file(str(SAMPLE_USRP_CFG))
+    assert "USRP" in parsed
+    usrp = parsed["USRP"]
+    assert isinstance(usrp, USRPConfiguration)
+    assert usrp.get_type() == SUPPORTED_CONFIGURATION_TYPES.USRP
+
+    hardware = build_hardware_dict(usrp, "USRP")
+    assert set(hardware) == {"MyB210_7"}
+    sources, registry, dpic = resolve_channel_map(
+        "USRP",
+        usrp.get_param("channel_map"),
+        hardware,
+    )
+    assert len(sources) == 4
+    assert registry.num_tx == 2
+    assert registry.num_rx == 2
+    assert dpic == []
 
 
 def test_configuration_resolves_device_type_from_type_field():
