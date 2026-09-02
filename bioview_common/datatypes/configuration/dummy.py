@@ -1,7 +1,8 @@
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
+
 from ..devices import DeviceType
 from .config import BaseConfig
 
-from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 """
 Configuration for the virtual "dummy" device.
@@ -31,7 +32,6 @@ BASE_DUMMY_CONFIG = {
         "enabled": False,
         "shape": "triangle",
         "num_pulses": 5,
-        "pulse_duration_s": 0.1,
         "packet_spacing_s": 1.0,
         "envelope_freq_hz": 10.0,
         "modulation_depth": 0.2,

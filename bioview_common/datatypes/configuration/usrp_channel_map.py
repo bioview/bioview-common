@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 from bioview_common.datatypes.datasource import DataSource
 
@@ -12,10 +11,10 @@ from bioview_common.datatypes.datasource import DataSource
 class GlobalChannelRegistry:
     """Flat global Tx/Rx indices across all hardware in a virtual USRP group."""
 
-    tx_entries: List[Tuple[str, int]] = field(default_factory=list)
-    rx_entries: List[Tuple[str, int]] = field(default_factory=list)
-    tx_if_freq: List[float] = field(default_factory=list)
-    tx_filter_bw: List[float] = field(default_factory=list)
+    tx_entries: list[tuple[str, int]] = field(default_factory=list)
+    rx_entries: list[tuple[str, int]] = field(default_factory=list)
+    tx_if_freq: list[float] = field(default_factory=list)
+    tx_filter_bw: list[float] = field(default_factory=list)
 
     @property
     def num_tx(self) -> int:
@@ -28,15 +27,25 @@ class GlobalChannelRegistry:
 
 @dataclass
 class DpicPair:
+    """One direct-path cancellation loop.
+
+    ``inject_tx`` radiates the anti-phase copy, ``measure_tx`` is the signal
+    whose direct path is being nulled, and ``measure_rx`` is the Rx channel the
+    null is measured on. ``measure_rx`` is a *receive* index and must be given
+    explicitly whenever it is not numerically equal to ``measure_tx``; defaulting
+    it to ``measure_tx`` only happens to be right for a 1x1 layout.
+    """
+
     inject_tx: int
     measure_tx: int
+    measure_rx: int | None = None
 
     @property
     def target_rx(self) -> int:
-        return self.measure_tx
+        return self.measure_tx if self.measure_rx is None else self.measure_rx
 
 
-def build_global_registry(hardware: Dict[str, dict]) -> GlobalChannelRegistry:
+def build_global_registry(hardware: dict[str, dict]) -> GlobalChannelRegistry:
     """Flatten hardware dict (keyed by device_name) into global channel indices."""
     registry = GlobalChannelRegistry()
     for _device_name, hw in hardware.items():
@@ -62,7 +71,7 @@ def build_global_registry(hardware: Dict[str, dict]) -> GlobalChannelRegistry:
 
 def _measurement_tx_rx_sets(
     channel_map: dict, registry: GlobalChannelRegistry
-) -> Tuple[List[int], List[int]]:
+) -> tuple[list[int], list[int]]:
     layout = channel_map.get("layout", "full_nxn")
     inject_txs = {p["inject_tx"] for p in channel_map.get("dpic", [])}
 
@@ -82,9 +91,9 @@ def _measurement_tx_rx_sets(
 
 def resolve_channel_map(
     group_id: str,
-    channel_map: Optional[dict],
-    hardware: Dict[str, dict],
-) -> Tuple[Set[DataSource], GlobalChannelRegistry, List[DpicPair]]:
+    channel_map: dict | None,
+    hardware: dict[str, dict],
+) -> tuple[set[DataSource], GlobalChannelRegistry, list[DpicPair]]:
     """Build DataSource set and DPIC pairs from hardware + channel_map config."""
     registry = build_global_registry(hardware)
 
@@ -97,14 +106,16 @@ def resolve_channel_map(
     tx_label_map = {g: i + 1 for i, g in enumerate(tx_global)}
     rx_label_map = {g: i + 1 for i, g in enumerate(rx_global)}
 
-    data_sources: Set[DataSource] = set()
+    data_sources: set[DataSource] = set()
     ch_ctr = 0
 
     if layout == "custom":
         for pair in channel_map.get("pairs", []):
             t_idx = pair["tx"]
             r_idx = pair["rx"]
-            label = pair.get("label") or f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
+            label = (
+                pair.get("label") or f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
+            )
             source = DataSource(group_id=group_id, channel=ch_ctr, label=label)
             source.tx_idx = t_idx
             source.rx_idx = r_idx
@@ -125,13 +136,17 @@ def resolve_channel_map(
                 ch_ctr += 1
 
     dpic_pairs = [
-        DpicPair(inject_tx=p["inject_tx"], measure_tx=p["measure_tx"])
+        DpicPair(
+            inject_tx=p["inject_tx"],
+            measure_tx=p["measure_tx"],
+            measure_rx=p.get("measure_rx"),
+        )
         for p in channel_map.get("dpic", [])
     ]
     return data_sources, registry, dpic_pairs
 
 
-def build_hardware_dict(device_cfg, group_id: str) -> Dict[str, dict]:
+def build_hardware_dict(device_cfg, group_id: str) -> dict[str, dict]:
     """Return hardware dict keyed by device_name; wrap single-device configs."""
     hardware = device_cfg.get_param("hardware")
     if hardware:
@@ -167,7 +182,7 @@ def resolve_device_serial(
     hw_entry: dict,
     discovered: dict,
     cache_lookup,
-) -> Optional[str]:
+) -> str | None:
     """Resolve serial: config -> cache -> discovery by name."""
     serial = hw_entry.get("serial")
     if serial:

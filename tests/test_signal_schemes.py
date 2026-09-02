@@ -6,6 +6,7 @@ from bioview_common.signal_schemes import (
     BurstEnvelope,
     CwScheme,
     DpicBalancer,
+    DpicChannel,
     FmcwScheme,
     PulsedDopplerScheme,
     scheme_from_config,
@@ -38,7 +39,9 @@ def test_cw_cycle_length_without_calibration():
 
 
 def test_burst_envelope_gated():
-    env = BurstEnvelope(fs=1e6, num_pulses=2, packet_spacing_s=1.0, envelope_freq_hz=10.0)
+    env = BurstEnvelope(
+        fs=1e6, num_pulses=2, packet_spacing_s=1.0, envelope_freq_hz=10.0
+    )
     wave, gate = env.generate(10000, 0)
     assert wave.shape == (10000,)
     assert np.all(wave[~gate.astype(bool)] == 0)
@@ -48,7 +51,11 @@ def test_fmcw_scheme():
     scheme = FmcwScheme(
         samp_rate=1e6,
         num_tx=1,
-        fmcw_config={"chirp_start_hz": 50e3, "chirp_end_hz": 150e3, "chirp_duration_s": 0.001},
+        fmcw_config={
+            "chirp_start_hz": 50e3,
+            "chirp_end_hz": 150e3,
+            "chirp_duration_s": 0.001,
+        },
         tx_amplitude=[1.0],
     )
     buf = scheme.generate(2000, 0)
@@ -68,24 +75,26 @@ def test_pulsed_doppler_scheme():
 
 
 def test_dpic_balancer_picks_minimum():
-    calls = []
-
-    def set_phase(_tx, phase):
-        calls.append(("phase", phase))
-
-    def set_amplitude(_tx, amp):
-        calls.append(("amp", amp))
-
+    state = {"phase": 0.0, "amp": 0.5}
     metrics = {0.0: 1.0, 45.0: 0.2, 90.0: 0.8}
 
-    def read_metric():
-        last = [c for c in calls if c[0] == "phase"]
-        if not last:
-            return 1.0
-        return metrics.get(last[-1][1], 1.0)
-
-    balancer = DpicBalancer(phase_step_deg=45.0, amp_step=1.0, settle_time_s=0)
-    result = balancer.run_pair(1, 0, set_phase, set_amplitude, read_metric, lambda: None)
+    ch = DpicChannel(
+        inject_tx=1,
+        measure_tx=0,
+        measure_rx=0,
+        set_phase=lambda p: state.update(phase=p),
+        set_amplitude=lambda a: state.update(amp=a),
+        read_metric=lambda: metrics.get(state["phase"], 1.0),
+        start_amplitude=0.5,
+    )
+    balancer = DpicBalancer(
+        phase_step_deg=45.0,
+        coarse_phase_step_deg=45.0,
+        amp_step=1.0,
+        coarse_amp_step=1.0,
+        settle_time_s=0,
+    )
+    result = balancer.balance(ch)
     assert result.best_phase_deg == 45.0
 
 
@@ -96,3 +105,145 @@ def test_scheme_from_config_factory():
         {"signal_scheme": "cw", "if_freq": [100e3, 110e3], "tx_amplitude": [1, 1]},
     )
     assert scheme.scheme_type == "cw"
+
+
+# ---------------------------------------------------------------------------
+# Calibration pilot: parity with the reference B210_2CHANNEL implementation.
+# ---------------------------------------------------------------------------
+
+
+def _reference_triangle(fs, freq, n_tri, period_s, offset, amplitude, n, start):
+    """Verbatim port of TriangleGenerator.next() from B210_2CHANNEL.py."""
+    period_len = max(1, int(round(period_s * fs)))
+    burst_samples = int(round(n_tri * fs / freq))
+    burst_len = max(1, min(burst_samples, period_len))
+
+    idx = start + np.arange(n, dtype=np.int64)
+    pos = idx % period_len
+    gate = pos < burst_len
+
+    t_local = pos.astype(np.float64) / fs
+    phase = t_local * freq
+    wave = 2.0 * np.abs(2.0 * (phase - np.floor(phase + 0.5))) - 1.0
+    wave = wave * amplitude + offset
+
+    out = np.zeros(n, dtype=np.float32)
+    out[gate] = wave[gate].astype(np.float32)
+    return out, gate.astype(np.float32)
+
+
+def test_burst_envelope_matches_reference_triangle():
+    fs, freq, n_tri, period_s = 1e6, 10.0, 5, 1.0
+    env = BurstEnvelope(
+        fs=fs,
+        shape="triangle",
+        num_pulses=n_tri,
+        packet_spacing_s=period_s,
+        envelope_freq_hz=freq,
+        envelope_offset=0.0,
+    )
+    for start in (0, 12345, 999_997):
+        got, gate = env.generate(4096, start)
+        want, want_gate = _reference_triangle(
+            fs, freq, n_tri, period_s, 0.0, 1.0, 4096, start
+        )
+        # BioView carries the amplitude as the scheme's modulation_depth, so the
+        # envelope itself is the reference triangle at amplitude 1.
+        np.testing.assert_allclose(got, want, atol=1e-6)
+        np.testing.assert_array_equal(gate, want_gate)
+
+
+def test_cw_calibration_overlay_matches_reference_modulation():
+    """Reference transmits carrier * (1 + tri); depth lives in the tri amplitude."""
+    fs, depth = 1e6, 0.5
+    scheme = CwScheme(
+        samp_rate=fs,
+        if_freq=[100e3],
+        tx_amplitude=[1.0],
+        tx_phase_deg=[0.0],
+        calibration={
+            "enabled": True,
+            "inject_channels": [0],
+            "modulation_depth": depth,
+            "num_pulses": 5,
+            "envelope_freq_hz": 10.0,
+            "packet_spacing_s": 1.0,
+        },
+    )
+    n = 8192
+    out = scheme.generate(n, 0)[0]
+    tri, _ = _reference_triangle(fs, 10.0, 5, 1.0, 0.0, depth, n, 0)
+    t = np.arange(n) / fs
+    want = (np.exp(1j * 2 * np.pi * 100e3 * t) * (1.0 + tri)).astype(np.complex64)
+    np.testing.assert_allclose(np.abs(out), np.abs(want), rtol=1e-5, atol=1e-6)
+
+
+def test_calibration_reference_is_gated_envelope():
+    scheme = CwScheme(
+        samp_rate=1e6,
+        if_freq=[100e3],
+        tx_amplitude=[1.0],
+        tx_phase_deg=[0.0],
+        calibration={
+            "enabled": True,
+            "inject_channels": [0],
+            "num_pulses": 5,
+            "envelope_freq_hz": 1000.0,
+            "packet_spacing_s": 0.01,
+        },
+    )
+    ref = scheme.get_calibration_reference(0, 0, 20000)
+    assert ref.shape == (20000,)
+    assert np.any(ref != 0.0)  # bursts present
+    assert np.any(ref == 0.0)  # gated off between bursts
+    # A channel outside inject_channels carries no reference.
+    assert not np.any(scheme.get_calibration_reference(1, 0, 1000))
+
+
+def test_pulse_duration_override_changes_burst_length():
+    """pulse_duration_s used to be accepted and silently ignored."""
+    base = BurstEnvelope(fs=1e6, num_pulses=5, envelope_freq_hz=10.0)
+    override = BurstEnvelope(
+        fs=1e6, num_pulses=5, envelope_freq_hz=10.0, pulse_duration_s=0.05
+    )
+    assert base.burst_len == 500_000
+    assert override.burst_len == 250_000
+
+
+def test_calibration_toggles_on_every_scheme():
+    """Calibration params used to be wired up on CW only."""
+    cal = {"enabled": False, "inject_channels": [0]}
+    schemes = [
+        CwScheme(1e6, [100e3], [1.0], [0.0], calibration=dict(cal)),
+        FmcwScheme(1e6, 1, {}, [1.0], calibration=dict(cal)),
+        PulsedDopplerScheme(1e6, 1, {}, [1.0], [100e3], calibration=dict(cal)),
+    ]
+    for scheme in schemes:
+        assert scheme.cycle_length() is not None
+        scheme.update_param("calibration.enabled", True)
+        assert scheme.calibration_enabled(), scheme.scheme_type
+        # Enabling calibration makes the waveform aperiodic, which is what tells
+        # TransmitWorker to stop replaying its cyclic buffer.
+        assert scheme.cycle_length() is None, scheme.scheme_type
+        scheme.update_param("calibration.enabled", False)
+        assert not scheme.calibration_enabled()
+
+
+def test_dpic_balancer_seeds_from_current_settings():
+    """The search must never silently settle on amplitude 0."""
+    state = {"phase": 30.0, "amp": 0.7}
+    balancer = DpicBalancer(phase_step_deg=5.0, amp_step=0.1, settle_time_s=0)
+    result = balancer.balance(
+        DpicChannel(
+            inject_tx=1,
+            measure_tx=0,
+            measure_rx=0,
+            set_phase=lambda p: state.update(phase=p),
+            set_amplitude=lambda a: state.update(amp=a),
+            read_metric=lambda: None,  # measurement path is silent
+            start_phase_deg=30.0,
+            start_amplitude=0.7,
+        )
+    )
+    assert not result.converged
+    assert state == {"phase": 30.0, "amp": 0.7}

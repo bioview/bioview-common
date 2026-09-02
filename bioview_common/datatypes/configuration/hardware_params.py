@@ -3,37 +3,49 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 
 GLOBAL_TX_PARAMS = frozenset({"tx_amplitude", "tx_phase", "if_freq", "tx_gain"})
 GLOBAL_RX_PARAMS = frozenset({"rx_gain"})
 
 
-def build_global_tx_mapping(hardware: Dict[str, dict]) -> Dict[int, Tuple[str, int]]:
-    """Map global Tx index -> (device_name, local_tx_index)."""
-    mapping: Dict[int, Tuple[str, int]] = {}
+def build_global_mapping(
+    hardware: dict[str, dict], kind: str = "tx"
+) -> tuple[dict[int, tuple[str, int]], dict[str, int], list[float]]:
+    """Flatten per-device channels into global indices.
+
+    Returns ``(index -> (device_name, local_index), device_name -> offset,
+    per-global-channel gains)``. The USRP and dummy backends both open with this
+    same walk, so it lives here rather than being written out twice.
+    """
+    key = f"{kind}_channels"
+    gain_key = f"{kind}_gain"
+
+    mapping: dict[int, tuple[str, int]] = {}
+    offsets: dict[str, int] = {}
+    gains: list[float] = []
+
     offset = 0
     for device_name, hw in hardware.items():
-        n_tx = len(hw.get("tx_channels", [0]))
-        for local in range(n_tx):
+        count = len(hw.get(key, [0]))
+        offsets[device_name] = offset
+        for local in range(count):
             mapping[offset + local] = (device_name, local)
-        offset += n_tx
-    return mapping
+
+        device_gains = hw.get(gain_key, [])
+        if not isinstance(device_gains, (list, tuple)):
+            device_gains = [device_gains] * count
+        gains.extend(
+            float(device_gains[i]) if i < len(device_gains) else 0.0
+            for i in range(count)
+        )
+        offset += count
+
+    return mapping, offsets, gains
 
 
-def build_global_rx_mapping(hardware: Dict[str, dict]) -> Dict[int, Tuple[str, int]]:
-    """Map global Rx index -> (device_name, local_rx_index)."""
-    mapping: Dict[int, Tuple[str, int]] = {}
-    offset = 0
-    for device_name, hw in hardware.items():
-        n_rx = len(hw.get("rx_channels", [0]))
-        for local in range(n_rx):
-            mapping[offset + local] = (device_name, local)
-        offset += n_rx
-    return mapping
-
-
-def _coerce_list(value: Any, length: int, fill: float = 0.0) -> List:
+def _coerce_list(value: Any, length: int, fill: float = 0.0) -> list:
     if isinstance(value, (list, tuple)):
         out = list(value)
     elif value is None:
@@ -46,10 +58,10 @@ def _coerce_list(value: Any, length: int, fill: float = 0.0) -> List:
 
 
 def get_global_tx_values(
-    hardware: Optional[Dict[str, dict]],
+    hardware: dict[str, dict] | None,
     param: str,
-    group_defaults: Optional[dict] = None,
-) -> List:
+    group_defaults: dict | None = None,
+) -> list:
     """Read a Tx parameter as a flat global list (matches backend channel order)."""
     group_defaults = group_defaults or {}
     if not hardware:
@@ -60,7 +72,7 @@ def get_global_tx_values(
             return []
         return [raw]
 
-    values: List = []
+    values: list = []
     for _device_name, hw in hardware.items():
         raw = hw.get(param, group_defaults.get(param))
         if isinstance(raw, (list, tuple)):
@@ -71,10 +83,10 @@ def get_global_tx_values(
 
 
 def get_global_rx_values(
-    hardware: Optional[Dict[str, dict]],
+    hardware: dict[str, dict] | None,
     param: str,
-    group_defaults: Optional[dict] = None,
-) -> List:
+    group_defaults: dict | None = None,
+) -> list:
     group_defaults = group_defaults or {}
     if not hardware:
         raw = group_defaults.get(param)
@@ -84,7 +96,7 @@ def get_global_rx_values(
             return []
         return [raw]
 
-    values: List = []
+    values: list = []
     for _device_name, hw in hardware.items():
         raw = hw.get(param, group_defaults.get(param))
         if isinstance(raw, (list, tuple)):
@@ -95,15 +107,22 @@ def get_global_rx_values(
 
 
 def apply_global_tx_values_to_hardware(
-    hardware: Dict[str, dict],
+    hardware: dict[str, dict],
     param: str,
-    values: List,
-    group_defaults: Optional[dict] = None,
-) -> List:
-    """Write a flat global Tx list into nested hardware entries; return the list applied."""
+    values: list,
+    group_defaults: dict | None = None,
+) -> list:
+    """Write a flat global Tx list into nested hardware entries.
+
+    Returns the list actually applied.
+    """
     group_defaults = group_defaults or {}
     default_raw = group_defaults.get(param)
-    default_fill = default_raw[-1] if isinstance(default_raw, (list, tuple)) and default_raw else 0.0
+    default_fill = (
+        default_raw[-1]
+        if isinstance(default_raw, (list, tuple)) and default_raw
+        else 0.0
+    )
 
     offset = 0
     for _device_name, hw in hardware.items():
@@ -115,14 +134,18 @@ def apply_global_tx_values_to_hardware(
 
 
 def apply_global_rx_values_to_hardware(
-    hardware: Dict[str, dict],
+    hardware: dict[str, dict],
     param: str,
-    values: List,
-    group_defaults: Optional[dict] = None,
-) -> List:
+    values: list,
+    group_defaults: dict | None = None,
+) -> list:
     group_defaults = group_defaults or {}
     default_raw = group_defaults.get(param)
-    default_fill = default_raw[-1] if isinstance(default_raw, (list, tuple)) and default_raw else 0.0
+    default_fill = (
+        default_raw[-1]
+        if isinstance(default_raw, (list, tuple)) and default_raw
+        else 0.0
+    )
 
     offset = 0
     for _device_name, hw in hardware.items():
@@ -137,8 +160,8 @@ def update_device_tx_param(
     device_cfg,
     param: str,
     value: Any,
-    idx: Optional[int] = None,
-) -> List:
+    idx: int | None = None,
+) -> list:
     """Update device config for a Tx param; returns the flat global value list."""
     hardware = device_cfg.get_param("hardware")
     defaults = device_cfg.to_dict()
@@ -172,8 +195,8 @@ def update_device_rx_param(
     device_cfg,
     param: str,
     value: Any,
-    idx: Optional[int] = None,
-) -> List:
+    idx: int | None = None,
+) -> list:
     hardware = device_cfg.get_param("hardware")
     defaults = device_cfg.to_dict()
 
@@ -202,7 +225,7 @@ def update_device_rx_param(
     return get_global_rx_values(hw, param, defaults)
 
 
-def resolve_param_values(device_cfg, param: str) -> List:
+def resolve_param_values(device_cfg, param: str) -> list:
     """Return flat values for UI display (hardware-aware)."""
     defaults = device_cfg.to_dict()
     hardware = device_cfg.get_param("hardware")
@@ -218,7 +241,9 @@ def resolve_param_values(device_cfg, param: str) -> List:
     return [raw]
 
 
-def _update_scheme_local_list(scheme, attr: str, local_idx: int, value: float, param: str):
+def _update_scheme_local_list(
+    scheme, attr: str, local_idx: int, value: float, param: str
+):
     current = list(getattr(scheme, attr, []))
     while len(current) <= local_idx:
         current.append(current[-1] if current else 0.0)
@@ -228,8 +253,8 @@ def _update_scheme_local_list(scheme, attr: str, local_idx: int, value: float, p
 
 def apply_global_tx_param_to_schemes(
     schemes_by_device: dict,
-    global_tx_to_device: Dict[int, Tuple[str, int]],
-    hardware: Optional[Dict[str, dict]],
+    global_tx_to_device: dict[int, tuple[str, int]],
+    hardware: dict[str, dict] | None,
     group_config: dict,
     param: str,
     values,

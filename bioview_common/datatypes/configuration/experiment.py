@@ -1,3 +1,5 @@
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
+
 from .config import BaseConfig
 
 
@@ -29,8 +31,6 @@ BASE_EXPERIMENT_CONFIG = {
     "timed_modes": [],
 }
 
-SAVE_PARAMS = ["enable_save", "save_dir", "file_name"]
-from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 class ExperimentConfiguration(BaseConfig):
     def __init__(self, config_dict: dict):
@@ -41,16 +41,6 @@ class ExperimentConfiguration(BaseConfig):
         # Update with provided values
         for key, value in config_dict.items():
             setattr(self, key, value)
-
-    def get_save_config(self):
-        return {
-            "enable_save": self.enable_save,
-            "save_dir": self.save_dir,
-            "file_name": self.file_name,
-        }
-
-    def get_display_config(self):
-        return {"display_sources": getattr(self, "display_sources", [])}
 
     def get_timed_modes(self):
         """Return the list of pre-defined timed-mode routine descriptors (raw

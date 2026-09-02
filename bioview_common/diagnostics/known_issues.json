@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "_comment": [
+    "Recognised failures and what to tell the user about them.",
+    "Both the Monitor and the Configurator render errors through this catalogue,",
+    "so a cause is explained the same way wherever it surfaces, and adding a new",
+    "one means adding an entry here rather than editing either GUI.",
+    "",
+    "Each issue is matched against the raw error text. 'match_any' hits when any",
+    "pattern is present; 'match_all' additionally requires every pattern. Patterns",
+    "are case-insensitive substrings unless the entry sets \"regex\": true."
+  ],
+  "issues": [
+    {
+      "id": "memory-integrity-pending-reboot",
+      "match_any": [
+        "still running until this machine is restarted"
+      ],
+      "summary": "The driver is blocked until this machine is restarted",
+      "detail": "Memory Integrity has been switched off, but it keeps running until the next boot, so it is still refusing to load the device's driver.",
+      "action": "Restart the machine to finish applying the change, then try again."
+    },
+    {
+      "id": "driver-blocked-by-memory-integrity",
+      "match_any": [
+        "not compatible with hypervisor enforcement",
+        "blocked by memory integrity",
+        "hypervisor-enforced code integrity",
+        "memory integrity is enabled"
+      ],
+      "summary": "The device driver is being blocked by Windows Memory Integrity",
+      "detail": "Memory Integrity (Core Isolation / HVCI) refuses to load drivers that predate its signing requirements, so the driver never starts and the device cannot be opened even though it is plugged in and listed.",
+      "action": "Turn off Windows Security > Device security > Core isolation > Memory integrity, then reboot. On a managed machine this may be set by IT policy and need their help."
+    },
+    {
+      "id": "biopac-driver-not-responding",
+      "match_any": [
+        "MPDRVERR"
+      ],
+      "summary": "The BIOPAC driver is not responding",
+      "detail": "The unit is connected but Windows cannot drive it, so mpdev could not open it.",
+      "action": "Open Device Manager and look for a warning on the BIOPAC unit. If it shows error code 39 the driver failed to load; reinstall the BIOPAC driver, and check whether Memory Integrity is enabled."
+    },
+    {
+      "id": "biopac-unit-busy",
+      "match_any": [
+        "MPDLLBUSY"
+      ],
+      "summary": "Another program is using the BIOPAC unit",
+      "detail": "Only one program can hold an MP unit at a time.",
+      "action": "Close AcqKnowledge, BSL, or any other BioView window using the unit, then try again."
+    },
+    {
+      "id": "biopac-model-mismatch",
+      "match_any": [
+        "MPINVTYPE",
+        "MPINVPARA"
+      ],
+      "summary": "The configured BIOPAC model does not match the attached unit",
+      "detail": "The unit rejected the model, connection type or port it was asked for.",
+      "action": "Check the 'model' in your configuration matches the hardware (MP36, MP150, MP160) and that the connection type is right for how it is attached."
+    },
+    {
+      "id": "biopac-no-unit",
+      "match_any": [
+        "MPNOTCON",
+        "no BIOPAC unit was found"
+      ],
+      "summary": "No BIOPAC unit was found",
+      "detail": "Nothing answered on the USB or network connection.",
+      "action": "Check the unit is powered on and connected, and that its driver is installed."
+    },
+    {
+      "id": "backend-unavailable",
+      "match_any": [
+        "backend is not available",
+        "No module named"
+      ],
+      "summary": "A device backend could not be loaded on the server",
+      "detail": "The Python package or driver that backend needs is missing, so none of its hardware can be used.",
+      "action": "Install the missing dependency on the server machine and restart BioView."
+    },
+    {
+      "id": "usrp-serial-unresolved",
+      "match_any": [
+        "could not resolve the serial number"
+      ],
+      "summary": "A USRP could not be identified",
+      "detail": "The radio named in the configuration was not among the devices found.",
+      "action": "Check the radio is powered on and attached, and that the device name in your configuration matches one the Configurator lists."
+    },
+    {
+      "id": "device-operation-timeout",
+      "match_any": [
+        "timed out after"
+      ],
+      "summary": "The device operation did not finish in time",
+      "detail": "The server was still working when the client gave up waiting.",
+      "action": "Retry. If it keeps happening, check the server log for the device that is hanging."
+    }
+  ]
+}
