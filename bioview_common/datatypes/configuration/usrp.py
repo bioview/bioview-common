@@ -4,12 +4,10 @@ from ..devices import DeviceType
 from .config import BaseConfig
 
 
-"""
-We make some general assumptions, specifically -
-* Each device has two working channels
-* Each device uses the default data formats
-* Each device uses internal timing reference and clock
-* Each device sends waveforms of amplitude 1
+"""USRP device configuration.
+
+Assumes two working channels per device, default data formats, an internal
+clock reference, and unit-amplitude waveforms.
 """
 
 BASE_USRP_CONFIG = {
@@ -90,13 +88,6 @@ class USRPConfiguration(BaseConfig):
         # Set device type. TODO: Remove
         self.device_type = DeviceType.USRP.value
 
-        # Set-up default absolute channel mapping, assuming single device.
-        # This assumes that Tx/Rx are always used in pairs
-        # This must be updated if using MIMO with multiple USRPs
+        # Default absolute channel map for a single device with paired Tx/Rx;
+        # multi-device MIMO must override it.
         self.absolute_channel_nums = self.tx_channels
-
-    def get_filter_bw(self):
-        if not isinstance(self.if_filter_bw, (list, tuple)):
-            return [self.if_filter_bw for _ in self.tx_channels]
-        elif len(self.if_filter_bw) == len(self.tx_channels):
-            return self.if_filter_bw

@@ -5,7 +5,7 @@ import os
 import socket
 import struct
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from ..constants import APP_VERSION
 from ..protocol import SUPPORTED_COMMANDS, SUPPORTED_RESPONSES, Command, Response
@@ -13,17 +13,10 @@ from .logs import log_print
 
 
 def set_exclusive_bind(sock: socket.socket) -> None:
-    """Configure a listening socket so bind() fails if another process serves the port.
+    """Configure a listener so bind() fails if another process serves the port.
 
-    On POSIX, SO_REUSEADDR only lets a listener reclaim a port left behind in
-    TIME_WAIT; a second live listener on the same port is still refused. Windows
-    is far more permissive: with SO_REUSEADDR a second process may bind a port
-    that is actively being listened on, and connections then go to whichever
-    socket bound first. A duplicate server would start silently, the "port
-    already in use" error would never fire, and clients could end up talking to
-    a stale server. SO_EXCLUSIVEADDRUSE restores the POSIX guarantee there --
-    and additionally makes Windows refuse a SO_REUSEADDR bind from an older
-    build, so the running server keeps the port either way.
+    Windows lets SO_REUSEADDR bind a port that is actively being listened on;
+    SO_EXCLUSIVEADDRUSE restores the POSIX guarantee.
     """
     if os.name == "nt":
         with contextlib.suppress(AttributeError, OSError):
@@ -53,13 +46,10 @@ _LOCAL_ADDR_TTL = 30.0
 
 
 def get_local_addresses() -> set:
-    """Every IPv4 address that belongs to *this* machine (loopback plus each NIC).
+    """Every IPv4 address belonging to this machine (loopback plus each NIC).
 
-    A machine on a network that hands out public addresses (many campus and
-    corporate networks do) reports a non-private IP from get_ip(), so a peer
-    address cannot be judged "same machine" by private-range membership alone.
-    Cached briefly: this is consulted per inbound connection, and the hostname
-    lookup behind it can be slow.
+    Needed because a machine on a public-address network reports a non-private
+    IP, so private-range membership alone cannot mean "same machine".
     """
     now = time.time()
     if (
@@ -124,10 +114,10 @@ def recv_exactly(sock: socket.socket, num_bytes: int):
 
 
 def recv_message(sock: socket.socket, logger=None):
-    """Receive a single length-framed control message and return its raw JSON
-    bytes (or None if the connection was closed). Control messages are framed as
-    [Length (4 bytes, big-endian)][JSON payload] so they survive TCP coalescing
-    and fragmentation and are not limited to MAX_BUFFER_SIZE."""
+    """Receive one length-framed control message, or None if the peer closed.
+
+    Framed as [Length (4 bytes, big-endian)][JSON payload].
+    """
     header = recv_exactly(sock, 4)
     if not header:
         return None
@@ -145,7 +135,7 @@ def _send_framed(sock: socket.socket, payload: bytes):
 def send_command(
     sock: socket.socket,
     command: Command,
-    params: Dict = None,
+    params: dict = None,
     logger=None,
 ) -> bytes:
     if not isinstance(command, Command) or command.name not in SUPPORTED_COMMANDS:
@@ -176,7 +166,7 @@ def send_command(
 
 
 def send_response(
-    sock: socket.socket, response: Response, params: Dict = None, logger=None
+    sock: socket.socket, response: Response, params: dict = None, logger=None
 ):
     if not isinstance(response, Response) or response.name not in SUPPORTED_RESPONSES:
         log_print(logger, "error", f"Invalid response: {response}")
@@ -198,14 +188,11 @@ def send_response(
         log_print(logger, "error", f"Error occurred while sending response: {e}")
 
 
-def send_datachunk(sock: socket.socket, data: Any, meta: Dict = None, logger=None):
-    """
-    Sends a numpy data chunk in a binary format:
-    [Total Length (4 bytes)] [Header Length (4 bytes)] [JSON Header] [Raw Data]
+def send_datachunk(sock: socket.socket, data: Any, meta: dict = None, logger=None):
+    """Send a numpy chunk as
+    [Total Length (4)][Header Length (4)][JSON Header][Raw Data].
 
-    The streaming data path only ever carries numpy arrays. Optional metadata
-    (e.g. the ordered list of data sources describing each row) is merged into
-    the JSON header so the client can route rows without relying on global order.
+    Metadata such as the ordered source list is merged into the JSON header.
     """
     if not hasattr(data, "tobytes"):
         log_print(
@@ -237,8 +224,8 @@ def send_datachunk(sock: socket.socket, data: Any, meta: Dict = None, logger=Non
 
 
 def parse_and_validate_message(
-    data: bytes, expected_type_list: List[str], logger=None
-) -> Tuple[str, Dict]:
+    data: bytes, expected_type_list: list[str], logger=None
+) -> tuple[str, dict]:
     if not data:
         return None, None
 
@@ -261,9 +248,9 @@ def parse_and_validate_message(
     return msg_type, payload
 
 
-def parse_and_validate_command(data: bytes, logger=None) -> Tuple[str, Dict]:
+def parse_and_validate_command(data: bytes, logger=None) -> tuple[str, dict]:
     return parse_and_validate_message(data, SUPPORTED_COMMANDS, logger)
 
 
-def parse_and_validate_response(data: bytes, logger=None) -> Tuple[str, Dict]:
+def parse_and_validate_response(data: bytes, logger=None) -> tuple[str, dict]:
     return parse_and_validate_message(data, SUPPORTED_RESPONSES, logger)

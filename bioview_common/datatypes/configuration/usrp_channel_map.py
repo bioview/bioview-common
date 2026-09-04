@@ -29,11 +29,8 @@ class GlobalChannelRegistry:
 class DpicPair:
     """One direct-path cancellation loop.
 
-    ``inject_tx`` radiates the anti-phase copy, ``measure_tx`` is the signal
-    whose direct path is being nulled, and ``measure_rx`` is the Rx channel the
-    null is measured on. ``measure_rx`` is a *receive* index and must be given
-    explicitly whenever it is not numerically equal to ``measure_tx``; defaulting
-    it to ``measure_tx`` only happens to be right for a 1x1 layout.
+    ``measure_rx`` is a *receive* index and must be given explicitly unless it
+    happens to equal ``measure_tx`` (only true for a 1x1 layout).
     """
 
     inject_tx: int
@@ -53,7 +50,7 @@ def build_global_registry(hardware: dict[str, dict]) -> GlobalChannelRegistry:
         rx_channels = hw.get("rx_channels", [0])
         if_freqs = hw.get("if_freq", [100e3] * len(tx_channels))
         filter_bw = hw.get("if_filter_bw", 5e3)
-        if not isinstance(filter_bw, (list, tuple)):
+        if not isinstance(filter_bw, list | tuple):
             filter_bw = [filter_bw] * len(tx_channels)
 
         for local_idx, ch in enumerate(tx_channels):

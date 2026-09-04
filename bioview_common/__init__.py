@@ -1,8 +1,6 @@
 """Shared datatypes, protocol and helpers for the BioView packages.
 
-Each submodule below defines ``__all__``; these star imports re-export exactly
-those names, so the flat ``bioview_common`` namespace stays in step with them
-without a hand-maintained list that would go stale on every addition.
+The star imports re-export each submodule's ``__all__``.
 """
 
 from .constants import *  # noqa: F403

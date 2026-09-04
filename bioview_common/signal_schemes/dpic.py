@@ -1,41 +1,8 @@
 """Direct-path interference cancellation.
 
-Physical model
---------------
-One Tx transmits the measurement signal. Its direct path leaks into the Rx as a
-complex term ``d``. A second ("inject") Tx radiates a copy of the *same* IF tone
-through a coupling ``h``, scaled by a digital weight ``w = a * exp(j*phi)`` and
-by the inject Tx's analog gain ``g``. The residual at the receiver is
-
-    r(w) = d + h(g) * w
-
-which is **affine in w**. That single fact drives everything here:
-
-* |r| is sinusoidal in ``phi`` with one minimum, at ``angle(-d/h)``, independent
-  of ``a``; and V-shaped in ``a`` once ``phi`` is fixed. Both axes are unimodal,
-  so a coarse-to-fine bracket is safe.
-* Better still, being affine means ``h`` and ``d`` are *identifiable from two
-  probes*, after which the cancelling weight follows in closed form:
-
-      r0 = r(0)      = d
-      r1 = r(a0)     = d + h*a0        =>  h = (r1 - r0) / a0
-      w* = -d / h    = -r0 * a0 / (r1 - r0)
-
-  Two measurements and a division replace thousands of grid points. Because the
-  model is affine, a residual measured at any ``w`` also gives an exact Newton
-  correction ``w <- w - r/h``, which mops up whatever the real hardware does
-  that the model does not (DAC nonlinearity, slow drift in ``d``).
-
-The digital weight only spans |w| <= 1. When the required |w*| falls outside a
-comfortable band, the *analog* gain of the inject Tx is stepped so that |w*|
-lands near mid-scale -- that is what makes the full range of direct-path
-strengths reachable, rather than clipping at |w| = 1 or squeezing the injection
-down into a handful of DAC codes.
-
-IMPORTANT: the inject Tx must be driven at the *same* IF as the measure Tx.
-The receive chain band-pass filters around the measure Tx's IF, so an inject Tx
-placed on a different IF is rejected by that filter and can never cancel the
-direct path, whatever weight the solver picks.
+The residual r(w) = d + h*w is affine in the digital weight, so h and d are
+identifiable from two probes and the cancelling weight w* = -d/h follows in
+closed form. See bioview-docs/reference/dpic.md for the full model.
 """
 
 from __future__ import annotations
@@ -43,8 +10,8 @@ from __future__ import annotations
 import cmath
 import math
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Sequence
 
 
 def _no_wait() -> None:
@@ -53,11 +20,7 @@ def _no_wait() -> None:
 
 @dataclass
 class DpicChannel:
-    """Everything the balancer needs to drive and observe one cancellation loop.
-
-    Bundled into an object because the alternative is a ``run_pair`` with
-    fifteen positional callbacks.
-    """
+    """Everything the balancer needs to drive and observe one cancellation loop."""
 
     inject_tx: int
     measure_tx: int
@@ -72,8 +35,7 @@ class DpicChannel:
     #: Block until the hardware has settled after a digital change.
     wait_settle: Callable[[], None] = _no_wait
 
-    #: Complex residual phasor. Enables the closed-form solve; without it the
-    #: balancer falls back to the coarse-to-fine grid search.
+    # Without a complex phasor the balancer falls back to a grid search.
     read_complex: Callable[[], complex | None] | None = None
 
     #: Analog Tx gain (dB) on the inject Tx, and its valid range.
@@ -103,8 +65,7 @@ class DpicBalanceResult:
     inject_gain_db: float = float("nan")
     #: "closed_form", "grid", or "none".
     method: str = "none"
-    #: False when no usable metric was read; the pair's settings are restored
-    #: to their pre-search values instead of being left at an arbitrary point.
+    # False when no usable metric was read; settings are then restored.
     converged: bool = True
     num_measurements: int = 0
     elapsed_s: float = 0.0
@@ -134,21 +95,18 @@ class DpicBalancer:
     #: Target mean received magnitude for the Rx auto-gain step.
     amp_target: float = 0.5
 
-    # --- timing ---
-    #: Settling after a digital phase/amplitude change. Digital changes take
-    #: effect on the next Tx buffer (a couple of ms), so this is deliberately
-    #: short; the real wait is for fresh Rx chunks, handled by read_metric.
+    # Digital changes land on the next Tx buffer, so this is short; the
+    # real wait is for fresh Rx chunks, in read_metric.
     settle_time_s: float = 0.02
     #: Settling after an analog gain change.
     gain_settle_time_s: float = 0.05
     #: Wall-clock ceiling for one pair. The grid fallback coarsens itself to fit.
     time_budget_s: float = 25.0
 
-    # --- closed-form solve ---
-    #: Digital weight used for the identification probe.
+    # Digital weight used for the identification probe.
     probe_amplitude: float = 0.5
-    #: Where |w*| should ideally land, as a fraction of max_amplitude. Mid-scale
-    #: leaves headroom for drift in both directions.
+    # Target for |w*| as a fraction of max_amplitude; mid-scale leaves
+    # headroom for drift in both directions.
     target_weight: float = 0.5
     #: Below this the injection wastes DAC range; above max_amplitude it clips.
     min_weight: float = 0.15
@@ -196,12 +154,8 @@ class DpicBalancer:
     def _identify(self, ch: DpicChannel, state: dict):
         """Two-probe identification of the affine model r(w) = h*w + d.
 
-        Re-centers the inject Tx's analog gain when the implied optimum lands
-        outside the usable digital range, so strong and weak direct paths are
-        equally reachable instead of clipping at |w| = 1.
-
-        Returns ``(h, w_star, gain)``, or None when the measurement path never
-        produced a usable phasor.
+        Re-centers the inject Tx's analog gain when |w*| leaves the digital
+        range. Returns ``(h, w_star, gain)``, or None if no usable phasor.
         """
         gain = ch.get_gain() if ch.get_gain else float("nan")
         h = None
@@ -226,8 +180,7 @@ class DpicBalancer:
             if attempt == self.max_gain_steps or state["expired"]():
                 break
 
-            # h scales with the analog gain, so re-center |w*| on mid-scale and
-            # re-identify.
+            # h scales with analog gain: re-center |w*| and re-identify.
             target = self.target_weight * self.max_amplitude
             delta_db = 20.0 * math.log10(max(abs(w_star), 1e-9) / target)
             new_gain = self._set_gain(ch, gain + delta_db)
@@ -242,8 +195,8 @@ class DpicBalancer:
     def _refine(self, ch: DpicChannel, state: dict, h, w_star, gain) -> dict | None:
         """Newton refinement from the identified optimum.
 
-        The model is affine, so one Newton step is exact; it is repeated only to
-        absorb hardware nonlinearity and drift in d.
+        One step is exact for the affine model; repeated to absorb hardware
+        nonlinearity and drift in d.
         """
         best = None
         w = self._apply_weight(ch, w_star)
@@ -370,11 +323,7 @@ class DpicBalancer:
     # ------------------------------------------------------------------- api
 
     def _measurement_state(self, ch: DpicChannel, deadline: float, counter: dict):
-        """The callbacks a search runs on, sharing one measurement counter.
-
-        Bundled here rather than inline so ``balance`` reads as the sequence of
-        steps it is.
-        """
+        """The callbacks a search runs on, sharing one measurement counter."""
 
         def expired():
             return time.monotonic() >= deadline
@@ -412,13 +361,11 @@ class DpicBalancer:
         state = self._measurement_state(ch, deadline, counter)
         measure = state["measure"]
 
-        # 1. Bring the receiver to a usable operating point: a null search is
-        #    meaningless if the direct path sits in the noise floor.
+        # A null search is meaningless if the direct path is in the noise.
         if ch.auto_gain_rx:
             ch.auto_gain_rx()
 
-        # 2. Seed from the current settings so a failed search has something to
-        #    restore, and so null depth can be reported.
+        # Seeded from current settings, so a failed search can restore them.
         ch.set_phase(float(ch.start_phase_deg))
         ch.set_amplitude(float(ch.start_amplitude))
         ch.wait_settle()
@@ -434,8 +381,7 @@ class DpicBalancer:
             if best is not None:
                 method = "closed_form"
 
-        # 3. Grid fallback: no complex measurement available, or the solve did
-        #    not actually beat the starting point.
+        # Grid fallback: no complex measurement, or the solve did not win.
         needs_grid = best is None or (
             math.isfinite(start_metric) and best["metric"] >= start_metric
         )
@@ -450,8 +396,7 @@ class DpicBalancer:
         elapsed = time.monotonic() - t_start
 
         if best is None:
-            # Never leave the hardware at an arbitrary point (in particular not
-            # at amplitude 0) because the measurement path was silent.
+            # Never leave the hardware at an arbitrary point (or amplitude 0).
             ch.set_phase(float(ch.start_phase_deg))
             ch.set_amplitude(float(ch.start_amplitude))
             return DpicBalanceResult(

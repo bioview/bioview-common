@@ -33,10 +33,8 @@ class BiopacConfiguration(BaseConfig):
         self.device_type = DeviceType.BIOPAC.value
         self.absolute_channel_nums = self.channels
 
-    #: Parameters the backend reads out of the nested ``hardware`` entry in
-    #: preference to the top level. Editing one from the UI has to reach both
-    #: places, or the change is silently ignored the next time the device is
-    #: initialized from this configuration.
+    # Read from the nested ``hardware`` entry in preference to the top level,
+    # so a UI edit has to be written to both.
     _HARDWARE_MIRRORED_PARAMS = (
         "channels",
         "samp_rate",

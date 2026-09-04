@@ -4,12 +4,10 @@ from ..devices import DeviceType
 from .config import BaseConfig
 
 
-"""
-Configuration for the virtual "dummy" device.
+"""Configuration for the virtual "dummy" device.
 
-Legacy mode synthesizes phase-shifted sine waves. When ``hardware`` and
-``channel_map`` are provided, the dummy backend runs the same CW / calibration /
-DPIC pipeline as USRP using a virtual MIMO channel model.
+Without ``hardware``/``channel_map`` it synthesizes phase-shifted sine waves;
+with them it runs the full USRP pipeline against a virtual MIMO channel.
 """
 
 BASE_DUMMY_CONFIG = {

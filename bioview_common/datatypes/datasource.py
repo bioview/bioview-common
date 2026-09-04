@@ -1,21 +1,23 @@
-import json
-
 # Default rate (Hz) at which a data source is rendered on screen. The streaming
-# pipeline decimates incoming data down to roughly this rate for display, so the
-# plot buffers are sized using it rather than the (much higher) acquisition rate.
+# pipeline decimates incoming data down to roughly this rate for display.
 DEFAULT_DISPLAY_FREQUENCY = 200.0
 
+
 class DataSource:
-    def __init__(self, group_id: str, channel: int, label: str, disp_freq: float = DEFAULT_DISPLAY_FREQUENCY):
+    def __init__(
+        self,
+        group_id: str,
+        channel: int,
+        label: str,
+        disp_freq: float = DEFAULT_DISPLAY_FREQUENCY,
+    ):
         self.group_id = group_id
         self.channel = channel
         self.label = label
         self.disp_freq = disp_freq
 
-    # Identity is the (group_id, channel) pair that uniquely addresses a physical
-    # stream. `label` is a human-facing display name that can be changed freely
-    # without making this a different source, so it is deliberately excluded from
-    # equality/hashing (sources are used as dict keys / set members for routing).
+    # Identity is (group_id, channel); `label` is a mutable display name and is
+    # deliberately excluded, since sources are dict keys for routing.
     def __eq__(self, other):
         if not isinstance(other, DataSource):
             return False
@@ -25,7 +27,17 @@ class DataSource:
         return hash((self.group_id, self.channel))
 
     def __repr__(self):
-        return f"{self.label} [{self.group_id}:{self.channel}]"
+        return self.get_display_label()
+
+    def get_display_label(self) -> str:
+        """Name shown in the UI: the device group followed by the stream label.
+
+        Channel labels are only unique within a device, so a bare label is
+        ambiguous as soon as two devices stream at once.
+        """
+        if not self.group_id:
+            return str(self.label)
+        return f"{self.group_id}: {self.label}"
 
     def get_disp_freq(self) -> float:
         """Display refresh frequency (Hz) used to size plot buffers."""
@@ -36,7 +48,7 @@ class DataSource:
             "group_id": self.group_id,
             "channel": self.channel,
             "label": self.label,
-            "disp_freq": self.get_disp_freq()
+            "disp_freq": self.get_disp_freq(),
         }
 
     @classmethod
@@ -45,12 +57,5 @@ class DataSource:
             group_id=data_dict.get("group_id"),
             channel=data_dict.get("channel"),
             label=data_dict.get("label"),
-            disp_freq=data_dict.get("disp_freq", DEFAULT_DISPLAY_FREQUENCY)
+            disp_freq=data_dict.get("disp_freq", DEFAULT_DISPLAY_FREQUENCY),
         )
-
-    def to_json(self):
-        return json.dumps(self.to_dict())
-
-    @classmethod
-    def from_json(cls, json_str):
-        return cls.from_dict(json.loads(json_str))

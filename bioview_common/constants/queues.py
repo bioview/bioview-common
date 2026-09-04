@@ -1,15 +1,7 @@
-"""Depths for the bounded streaming queues.
+"""Depths for the bounded streaming queues, in chunks.
 
-All of these used to be unbounded. On an unbounded queue a consumer that stalls
-(or, as happened during DPIC balance, is never started) grows RAM without limit
-and pushes latency up with it, while every ``except queue.Full`` handler in the
-codebase sits there as dead code. Bounding them converts that failure mode into
-a bounded, *countable* drop.
-
-Depths are expressed in chunks. One chunk is one receive buffer -- roughly
-40 ms at 1 MSps with the default USRP buffering -- so the numbers below are
-about a third of a second of slack on the live paths and a couple of seconds on
-the save path, which is the one that must ride out disk hiccups.
+One chunk is one receive buffer (~40 ms at 1 MSps). See
+bioview-docs/architecture/streaming.md for the drop policies these imply.
 """
 
 #: Raw Rx buffers waiting for demodulation, per device.
@@ -19,9 +11,7 @@ RX_QUEUE_DEPTH = 8
 #: writes are bursty and dropping here means losing recorded data.
 SAVE_QUEUE_DEPTH = 64
 
-#: Demodulated chunks waiting to be forwarded to the client. Shallow on purpose
-#: -- stale display data has no value, so old chunks are evicted rather than
-#: queued behind.
+# Shallow on purpose: stale display data is evicted, not queued behind.
 DISPLAY_QUEUE_DEPTH = 16
 
 #: Chunks waiting on the server's socket writer.

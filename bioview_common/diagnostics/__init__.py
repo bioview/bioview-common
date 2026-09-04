@@ -1,16 +1,11 @@
 """Recognised failures and the plain-language explanation for each.
 
-The Monitor and the Configurator both surface errors that originate on the
-server, and each used to word them however its own code happened to. The
-catalogue in ``known_issues.json`` is the single place those explanations live:
-both GUIs render errors through :func:`explain`, so the same cause reads the
-same way wherever it appears, and teaching BioView about a new failure means
-adding an entry to the JSON rather than editing either GUI.
+Both GUIs render errors through :func:`explain`, so a new failure is taught to
+BioView by adding an entry to ``known_issues.json``.
 """
 import json
 import re
 from pathlib import Path
-from typing import List, Optional
 
 
 _CATALOGUE_PATH = Path(__file__).with_name("known_issues.json")
@@ -49,16 +44,11 @@ class KnownIssue:
         return f"KnownIssue({self.id!r})"
 
 
-_cache: Optional[List[KnownIssue]] = None
+_cache: list[KnownIssue] | None = None
 
 
-def load_known_issues(force_reload: bool = False) -> List[KnownIssue]:
-    """The catalogue, read once and kept.
-
-    A malformed or missing catalogue must never take the application down: it
-    is there to make errors clearer, so failing to read it just means errors
-    are reported exactly as the server phrased them.
-    """
+def load_known_issues(force_reload: bool = False) -> list[KnownIssue]:
+    """The catalogue, read once and kept. A bad catalogue is treated as empty."""
     global _cache
     if _cache is not None and not force_reload:
         return _cache
@@ -71,12 +61,10 @@ def load_known_issues(force_reload: bool = False) -> List[KnownIssue]:
     return _cache
 
 
-def explain(text) -> Optional[KnownIssue]:
+def explain(text) -> KnownIssue | None:
     """The catalogue entry describing this error, if one recognises it.
 
-    Entries are checked in file order, so put the specific ones first: a driver
-    blocked by Memory Integrity is also an MPDRVERR, and the specific cause is
-    the more useful thing to say.
+    Checked in file order, so specific entries must come first.
     """
     if not text:
         return None
@@ -88,11 +76,7 @@ def explain(text) -> Optional[KnownIssue]:
 
 
 def describe_failure(text, include_original: bool = True) -> str:
-    """An error phrased for a user, with guidance when the cause is recognised.
-
-    Unrecognised errors are returned untouched -- better the server's own words
-    than a vague stand-in that hides them.
-    """
+    """An error phrased for a user. Unrecognised errors are returned untouched."""
     if not text:
         return ""
 

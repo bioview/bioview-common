@@ -16,8 +16,7 @@ def build_global_mapping(
     """Flatten per-device channels into global indices.
 
     Returns ``(index -> (device_name, local_index), device_name -> offset,
-    per-global-channel gains)``. The USRP and dummy backends both open with this
-    same walk, so it lives here rather than being written out twice.
+    per-global-channel gains)``.
     """
     key = f"{kind}_channels"
     gain_key = f"{kind}_gain"
@@ -34,7 +33,7 @@ def build_global_mapping(
             mapping[offset + local] = (device_name, local)
 
         device_gains = hw.get(gain_key, [])
-        if not isinstance(device_gains, (list, tuple)):
+        if not isinstance(device_gains, list | tuple):
             device_gains = [device_gains] * count
         gains.extend(
             float(device_gains[i]) if i < len(device_gains) else 0.0
@@ -46,7 +45,7 @@ def build_global_mapping(
 
 
 def _coerce_list(value: Any, length: int, fill: float = 0.0) -> list:
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         out = list(value)
     elif value is None:
         out = []
@@ -66,7 +65,7 @@ def get_global_tx_values(
     group_defaults = group_defaults or {}
     if not hardware:
         raw = group_defaults.get(param)
-        if isinstance(raw, (list, tuple)):
+        if isinstance(raw, list | tuple):
             return list(raw)
         if raw is None:
             return []
@@ -75,7 +74,7 @@ def get_global_tx_values(
     values: list = []
     for _device_name, hw in hardware.items():
         raw = hw.get(param, group_defaults.get(param))
-        if isinstance(raw, (list, tuple)):
+        if isinstance(raw, list | tuple):
             values.extend(raw)
         elif raw is not None:
             values.append(raw)
@@ -90,7 +89,7 @@ def get_global_rx_values(
     group_defaults = group_defaults or {}
     if not hardware:
         raw = group_defaults.get(param)
-        if isinstance(raw, (list, tuple)):
+        if isinstance(raw, list | tuple):
             return list(raw)
         if raw is None:
             return []
@@ -99,7 +98,7 @@ def get_global_rx_values(
     values: list = []
     for _device_name, hw in hardware.items():
         raw = hw.get(param, group_defaults.get(param))
-        if isinstance(raw, (list, tuple)):
+        if isinstance(raw, list | tuple):
             values.extend(raw)
         elif raw is not None:
             values.append(raw)
@@ -119,9 +118,7 @@ def apply_global_tx_values_to_hardware(
     group_defaults = group_defaults or {}
     default_raw = group_defaults.get(param)
     default_fill = (
-        default_raw[-1]
-        if isinstance(default_raw, (list, tuple)) and default_raw
-        else 0.0
+        default_raw[-1] if isinstance(default_raw, list | tuple) and default_raw else 0.0
     )
 
     offset = 0
@@ -142,9 +139,7 @@ def apply_global_rx_values_to_hardware(
     group_defaults = group_defaults or {}
     default_raw = group_defaults.get(param)
     default_fill = (
-        default_raw[-1]
-        if isinstance(default_raw, (list, tuple)) and default_raw
-        else 0.0
+        default_raw[-1] if isinstance(default_raw, list | tuple) and default_raw else 0.0
     )
 
     offset = 0
@@ -175,7 +170,7 @@ def update_device_tx_param(
             device_cfg.set_param(param, current)
             return current
         device_cfg.set_param(param, value)
-        return list(value) if isinstance(value, (list, tuple)) else [value]
+        return list(value) if isinstance(value, list | tuple) else [value]
 
     hw = deepcopy(hardware)
     current = get_global_tx_values(hw, param, defaults)
@@ -184,7 +179,7 @@ def update_device_tx_param(
             current.append(current[-1] if current else 0.0)
         current[idx] = value
     else:
-        current = list(value) if isinstance(value, (list, tuple)) else [value]
+        current = list(value) if isinstance(value, list | tuple) else [value]
 
     apply_global_tx_values_to_hardware(hw, param, current, defaults)
     device_cfg.set_param("hardware", hw)
@@ -209,7 +204,7 @@ def update_device_rx_param(
             device_cfg.set_param(param, current)
             return current
         device_cfg.set_param(param, value)
-        return list(value) if isinstance(value, (list, tuple)) else [value]
+        return list(value) if isinstance(value, list | tuple) else [value]
 
     hw = deepcopy(hardware)
     current = get_global_rx_values(hw, param, defaults)
@@ -218,7 +213,7 @@ def update_device_rx_param(
             current.append(current[-1] if current else 0.0)
         current[idx] = value
     else:
-        current = list(value) if isinstance(value, (list, tuple)) else [value]
+        current = list(value) if isinstance(value, list | tuple) else [value]
 
     apply_global_rx_values_to_hardware(hw, param, current, defaults)
     device_cfg.set_param("hardware", hw)
@@ -234,7 +229,7 @@ def resolve_param_values(device_cfg, param: str) -> list:
     if param in GLOBAL_RX_PARAMS:
         return get_global_rx_values(hardware, param, defaults)
     raw = device_cfg.get_param(param)
-    if isinstance(raw, (list, tuple)):
+    if isinstance(raw, list | tuple):
         return list(raw)
     if raw is None:
         return []
@@ -260,7 +255,7 @@ def apply_global_tx_param_to_schemes(
     values,
 ) -> None:
     """Push a flat global Tx parameter list into hardware dict and live schemes."""
-    flat = list(values) if isinstance(values, (list, tuple)) else [values]
+    flat = list(values) if isinstance(values, list | tuple) else [values]
     if hardware:
         apply_global_tx_values_to_hardware(hardware, param, flat, group_config)
         group_config["hardware"] = hardware

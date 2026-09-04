@@ -48,12 +48,6 @@ class BurstEnvelope:
         burst_samples = int(round(self.num_pulses * self.fs / self.pulse_freq_hz))
         self.burst_len = max(1, min(burst_samples, self.period_len))
 
-    def update_config(self, **kwargs):
-        for key, val in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, val)
-        self._recalc()
-
     def _shape_wave(self, t_local: np.ndarray) -> np.ndarray:
         if self.shape == "rectangle":
             return np.ones_like(t_local, dtype=np.float64)
@@ -89,7 +83,7 @@ class BurstEnvelopeMixin:
         )
         inject = self._cal_config.get("inject_channels", [0])
         self._inject_channels = set(
-            inject if isinstance(inject, (list, tuple)) else [inject]
+            inject if isinstance(inject, list | tuple) else [inject]
         )
         self._envelope = BurstEnvelope(
             fs=samp_rate,
@@ -103,8 +97,7 @@ class BurstEnvelopeMixin:
 
     def set_calibration_enabled(self, enabled: bool) -> None:
         self._cal_enabled = bool(enabled)
-        # Write back so a later scheme re-init (e.g. an ``fmcw`` reconfigure that
-        # rebuilds the object from ``_cal_config``) does not resurrect the stale
+        # Written back so a later scheme re-init cannot resurrect the stale
         # enabled flag from the original config.
         self._cal_config["enabled"] = self._cal_enabled
 
@@ -112,11 +105,7 @@ class BurstEnvelopeMixin:
         return self._cal_enabled
 
     def handle_common_param(self, param: str, value) -> bool:
-        """Apply params every scheme shares. Returns True if consumed.
-
-        Keeps calibration/phase control working uniformly across CW, FMCW and
-        pulsed-Doppler instead of only on CW.
-        """
+        """Apply params every scheme shares. Returns True if consumed."""
         if param == "calibration":
             self._init_calibration(self.samp_rate, value or {})
             return True

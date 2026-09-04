@@ -13,10 +13,8 @@ class Command(Enum):
 
     # Device specific controls
     DISCOVER_DEVICES = "discover_devices"
-    # Config-free enumeration of everything currently attached, with each
-    # backend's editable-property schema. DISCOVER_DEVICES resolves declared
-    # device *groups* against a loaded configuration; LIST_DEVICES answers the
-    # simpler question the Configurator asks: what is plugged in right now?
+    # Config-free: what is plugged in right now, with each backend's
+    # editable-property schema. DISCOVER_DEVICES resolves declared groups.
     LIST_DEVICES = "list_devices"
     SET_DEVICE_CONFIG = "set_device_config"
 

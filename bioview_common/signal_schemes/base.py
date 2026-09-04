@@ -27,10 +27,8 @@ class SignalScheme(ABC):
     def tx_phase_offset(self, tx_idx: int) -> float:
         """Static programmed Tx phase (rad), without the carrier ramp.
 
-        This is what the demodulator subtracts. :meth:`tx_phase_at` includes the
-        running ``2*pi*f_if*n/fs`` term, which the receive downconversion has
-        already removed -- subtracting it a second time turns the recorded phase
-        channel into a linear ramp instead of a channel measurement.
+        This is what the demodulator subtracts; :meth:`tx_phase_at` also carries
+        the IF ramp that downconversion has already removed.
         """
         return 0.0
 
@@ -40,9 +38,8 @@ class SignalScheme(ABC):
     def get_num_tx_channels(self) -> int:
         return 0
 
-    # Optional hooks: a scheme with no runtime-tunable parameters and no
-    # calibration tone is complete without them, so they stay concrete no-ops
-    # rather than becoming abstract and forcing empty overrides everywhere.
+    # Optional hooks: concrete no-ops, so a scheme with no tunable parameters
+    # need not override them.
     def update_param(self, param: str, value) -> None:  # noqa: B027
         pass
 
