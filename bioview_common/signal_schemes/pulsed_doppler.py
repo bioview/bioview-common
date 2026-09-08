@@ -6,9 +6,42 @@ from typing import List, Optional
 
 import numpy as np
 
-from .base import SignalScheme
+from .base import SignalScheme, RxProcessor
 from .calibration import BurstEnvelopeMixin
+from bioview_common.utils import apply_filter, get_filter
 
+class PulsedDopplerRxProcessor(RxProcessor):
+    def __init__(self, samp_rate: float, if_freq: float, if_filter_bw: float):
+        self.samp_rate = samp_rate
+        self.if_freq = if_freq
+        self.accumulated_phase = 0.0
+        
+        low_cutoff = if_freq - if_filter_bw / 2
+        high_cutoff = if_freq + if_filter_bw / 2
+        self.filt = get_filter(
+            bounds=[low_cutoff, high_cutoff],
+            samp_rate=self.samp_rate,
+            btype="band",
+            order=2,
+        )
+        self.filter_state = None
+
+    def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
+        if len(rx_samples) == 0:
+            return np.array([])
+            
+        filt_data, new_filter_state = apply_filter(
+            rx_samples, self.filt, zi=self.filter_state
+        )
+        self.filter_state = new_filter_state
+
+        phase_increment = 2 * np.pi * self.if_freq / self.samp_rate
+        phases = self.accumulated_phase + np.arange(len(filt_data)) * phase_increment
+        self.accumulated_phase = phases[-1] + phase_increment
+
+        downconversion = np.exp(-1j * phases)
+        baseband_data = filt_data * downconversion
+        return baseband_data
 
 class PulsedDopplerScheme(BurstEnvelopeMixin, SignalScheme):
     scheme_type = "pulsed_doppler"
@@ -67,6 +100,12 @@ class PulsedDopplerScheme(BurstEnvelopeMixin, SignalScheme):
             )
             out[tx_idx] = self._apply_calibration(carrier, tx_idx, start_sample)
         return out
+
+    def create_rx_processor(
+        self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
+    ) -> Optional[RxProcessor]:
+        return PulsedDopplerRxProcessor(samp_rate, self.if_freq[tx_idx] if tx_idx < len(self.if_freq) else self.doppler_if_hz, if_filter_bw)
+
 
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":

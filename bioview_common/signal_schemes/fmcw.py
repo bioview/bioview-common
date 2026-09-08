@@ -7,8 +7,50 @@ from typing import List, Optional
 
 import numpy as np
 
-from .base import SignalScheme
+from .base import SignalScheme, RxProcessor
 from .calibration import BurstEnvelopeMixin
+from bioview_common.utils import apply_filter, get_filter
+
+
+class FmcwRxProcessor(RxProcessor):
+    def __init__(self, scheme: "FmcwScheme", tx_idx: int, if_freq: float, if_filter_bw: float):
+        self.scheme = scheme
+        self.samp_rate = scheme.samp_rate
+        self.if_freq = if_freq
+        self.accumulated_phase = 0.0
+        self.accumulated_sample_idx = 0
+        
+        low_cutoff = if_freq - if_filter_bw / 2
+        high_cutoff = if_freq + if_filter_bw / 2
+        self.filt = get_filter(
+            bounds=[low_cutoff, high_cutoff],
+            samp_rate=self.samp_rate,
+            btype="band",
+            order=2,
+        )
+        self.filter_state = None
+
+    def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
+        if len(rx_samples) == 0:
+            return np.array([])
+            
+        filt_data, new_filter_state = apply_filter(
+            rx_samples, self.filt, zi=self.filter_state
+        )
+        self.filter_state = new_filter_state
+
+        phase_increment = 2 * np.pi * self.if_freq / self.samp_rate
+        phases = self.accumulated_phase + np.arange(len(filt_data)) * phase_increment
+        self.accumulated_phase = phases[-1] + phase_increment
+
+        downconversion = np.exp(-1j * phases)
+        baseband_data = filt_data * downconversion
+        
+        ref = self.scheme.get_dechirp_reference(len(filt_data), self.accumulated_sample_idx)
+        baseband_data = baseband_data * ref
+        self.accumulated_sample_idx += len(filt_data)
+        
+        return baseband_data
 
 
 class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
@@ -81,6 +123,12 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
         ref = np.zeros(n_samples, dtype=np.complex64)
         ref[in_chirp] = np.exp(-1j * phases[in_chirp]).astype(np.complex64)
         return ref
+
+    def create_rx_processor(
+        self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
+    ) -> Optional[RxProcessor]:
+        return FmcwRxProcessor(self, tx_idx, if_freq, if_filter_bw)
+
 
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":

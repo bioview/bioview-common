@@ -61,6 +61,11 @@ BASE_USRP_CONFIG = {
         "pri_s": 1e-3,
         "doppler_if_hz": 100e3,
     },
+    "cdma": {
+        "chip_rate_hz": 100e3,
+        "code_length": 1024,
+        "code_type": "Walsh-Hadamard",
+    },
     "channel_map": None,
     "hardware": None,
 }

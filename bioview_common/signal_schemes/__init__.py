@@ -1,5 +1,6 @@
 from .base import SignalScheme
 from .calibration import BurstEnvelope, BurstEnvelopeMixin
+from .cdma import CdmaScheme
 from .cw import CwScheme
 from .dpic import DpicBalanceResult, DpicBalancer
 from .factory import scheme_from_config
@@ -11,6 +12,7 @@ __all__ = [
     "SignalScheme",
     "BurstEnvelope",
     "BurstEnvelopeMixin",
+    "CdmaScheme",
     "CwScheme",
     "FmcwScheme",
     "PulsedDopplerScheme",
