@@ -47,16 +47,14 @@ BASE_USRP_CONFIG = {
         # Digital phase/amplitude changes land on the next Tx buffer, so the
         # settle is short; the real wait is for fresh Rx chunks.
         "settle_time_s": 0.02,
-        "gain_settle_time_s": 0.05,
-        "time_budget_s": 25.0,
-        "probe_amplitude": 0.5,
-        "target_weight": 0.5,
-        "min_weight": 0.15,
-        "refine_iterations": 3,
-        # Resolution of the grid fallback, used only when no complex residual
-        # is available.
-        "phase_step_deg": 0.1,
-        "amp_step": 0.05,
+        "time_budget_s": 120.0,
+        # Grid resolution. The coarse steps are the LabVIEW VI's 60 phase and
+        # 20 amplitude points; the fine steps sweep +/- one coarse step.
+        "coarse_phase_step_deg": 6.0,
+        "coarse_amp_step": 0.05,
+        "coarse_probe_amplitude": 0.1,
+        "phase_step_deg": 0.2,
+        "amp_step": 0.001,
     },
     "fmcw": {
         "chirp_start_hz": 50e3,

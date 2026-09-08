@@ -1,20 +1,20 @@
 """Direct-path interference cancellation.
 
-The residual r(w) = d + h*w is affine in the digital weight, so h and d are
-identifiable from two probes and the cancelling weight w* = -d/h follows in
-closed form. See bioview-docs/reference/dpic.md for the full model.
+A coarse-to-fine grid search over the inject Tx's digital phase and amplitude,
+ported from the ``Pig_2Ch_NCS_BIOPAC_BalanceSignal`` LabVIEW VI. The four
+sweeps and their step sizes are the VI's; see bioview-docs/reference/dpic.md.
 """
 
 from __future__ import annotations
 
-import cmath
+import contextlib
 import math
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
-def _no_wait() -> None:
+def _no_wait(_seconds: float = 0.0) -> None:
     """Default ``wait_settle``: nothing to wait for."""
 
 
@@ -32,25 +32,71 @@ class DpicChannel:
     set_amplitude: Callable[[float], None] = None
     #: Mean residual magnitude on ``measure_rx``. None if not yet measurable.
     read_metric: Callable[[], float | None] = None
-    #: Block until the hardware has settled after a digital change.
-    wait_settle: Callable[[], None] = _no_wait
+    #: Dwell for the given number of seconds after a change. The VI's per-point
+    #: wait, which is also what makes a sweep legible on a live plot.
+    wait_settle: Callable[[float], None] = _no_wait
 
-    # Without a complex phasor the balancer falls back to a grid search.
-    read_complex: Callable[[], complex | None] | None = None
-
-    #: Analog Tx gain (dB) on the inject Tx, and its valid range.
-    set_gain: Callable[[float], None] | None = None
+    #: Analog Tx gain (dB) on the inject Tx, reported with the result.
     get_gain: Callable[[], float] | None = None
-    gain_range: tuple[float, float] = (0.0, 89.75)
-    #: Extra settling after an analog gain change (LO/AGC, not just the DAC).
-    wait_gain_settle: Callable[[], None] | None = None
 
-    #: Raise Rx gain to a usable operating point before the search starts.
-    auto_gain_rx: Callable[[], None] | None = None
+    # --- the VI's "Tune Rx1 Gain to DC value of ~0.5" stage ---
+    #
+    # The VI steps the *measure* Tx's analog gain and the Rx gain together, by
+    # 1 dB per iteration, until the measured level sits between its two
+    # thresholds. Both accessors must be present for the stage to run; a
+    # backend with no analog gain control (the simulator) leaves them None and
+    # the stage is skipped.
+    get_rx_gain: Callable[[], float] | None = None
+    set_rx_gain: Callable[[float], None] | None = None
+    get_tx_gain: Callable[[], float] | None = None
+    set_tx_gain: Callable[[float], None] | None = None
+    #: (min, max) dB, so the ladder cannot walk off the end of the range.
+    rx_gain_range: tuple[float, float] = (0.0, 76.0)
+    tx_gain_range: tuple[float, float] = (0.0, 90.0)
 
     #: Starting point, so a failed search can restore it.
     start_phase_deg: float = 0.0
     start_amplitude: float = 0.0
+
+    def tunes_gain(self) -> bool:
+        return None not in (
+            self.get_rx_gain,
+            self.set_rx_gain,
+            self.get_tx_gain,
+            self.set_tx_gain,
+        )
+
+
+@dataclass
+class DpicStage:
+    """What one sweep actually did, so a short balance is never ambiguous."""
+
+    name: str
+    #: Points the sweep intended to visit.
+    planned: int
+    #: Points it actually applied before the budget ran out.
+    visited: int = 0
+    #: Points that returned a usable metric.
+    measured: int = 0
+    best_value: float = float("nan")
+    best_metric: float = float("nan")
+    elapsed_s: float = 0.0
+
+    @property
+    def truncated(self) -> bool:
+        return self.visited < self.planned
+
+    def describe(self) -> str:
+        return (
+            f"{self.name}: {self.measured}/{self.planned} measured"
+            + (f" (TRUNCATED at {self.visited})" if self.truncated else "")
+            + (
+                f", best={self.best_value:.4g} metric={self.best_metric:.4g}"
+                if self.measured
+                else ", no usable metric"
+            )
+            + f", {self.elapsed_s:.1f}s"
+        )
 
 
 @dataclass
@@ -61,9 +107,12 @@ class DpicBalanceResult:
     best_amplitude: float
     min_metric: float
     measure_rx: int = -1
-    #: Analog gain (dB) left on the inject Tx.
+    #: Analog gain (dB) on the inject Tx.
     inject_gain_db: float = float("nan")
-    #: "closed_form", "grid", or "none".
+    #: Where the VI's gain stage left the measure Tx / Rx, in dB.
+    measure_tx_gain_db: float = float("nan")
+    measure_rx_gain_db: float = float("nan")
+    #: "grid" or "none".
     method: str = "none"
     # False when no usable metric was read; settings are then restored.
     converged: bool = True
@@ -71,6 +120,15 @@ class DpicBalanceResult:
     elapsed_s: float = 0.0
     #: Metric before the search started, for a null-depth figure of merit.
     start_metric: float = float("nan")
+    #: One entry per sweep, in order.
+    stages: list[DpicStage] = field(default_factory=list)
+    #: Why the balance did not run, when it did not.
+    message: str = ""
+
+    @property
+    def truncated(self) -> bool:
+        """True when the time budget cut any sweep short."""
+        return any(stage.truncated for stage in self.stages)
 
     @property
     def null_depth_db(self) -> float:
@@ -81,252 +139,314 @@ class DpicBalanceResult:
 
 @dataclass
 class DpicBalancer:
-    """Closed-form solve with a coarse-to-fine grid search as fallback."""
+    """Coarse-to-fine grid search for the digital weight that nulls the direct path.
 
-    # --- resolution of the grid fallback ---
-    phase_step_deg: float = 0.1
-    amp_step: float = 0.05
-    coarse_phase_step_deg: float = 10.0
-    coarse_amp_step: float = 0.1
-    refine_factor: float = 8.0
+    Four sweeps, in the VI's order: coarse phase at a small fixed injection
+    amplitude, coarse amplitude at that phase, then a fine pass over each,
+    windowed to +/- one coarse step around the coarse winner. Each sweep takes
+    the argmin of everything it measured, exactly as the VI's "array minimum"
+    does; it does not require an improvement over the seed.
+    """
 
-    # --- limits ---
+    # --- coarse pass: the VI's 60 phase points and 20 amplitude points ---
+    coarse_phase_step_deg: float = 6.0
+    coarse_amp_step: float = 0.05
+    #: "Start with small Tx Amp" -- the amplitude the coarse phase sweep runs at.
+    coarse_probe_amplitude: float = 0.1
+
+    # --- fine pass: swept over +/- the matching coarse step ---
+    phase_step_deg: float = 0.2
+    amp_step: float = 0.001
+
+    #: Above this the injection clips the DAC.
     max_amplitude: float = 1.0
-    #: Target mean received magnitude for the Rx auto-gain step.
+
+    # --- dwell times, straight from the VI's Wait (ms) nodes ---
+    #
+    # ``read_metric`` additionally blocks for chunks captured *after* the
+    # change, which the VI has no equivalent of; these are on top of that, not
+    # instead of it. They are also what makes a sweep legible: at a few tens of
+    # milliseconds per point the whole search flashes past and the plot shows
+    # no pattern at all.
+    coarse_settle_time_s: float = 0.2
+    fine_settle_time_s: float = 0.1
+    #: After a sweep's winner is applied, before the next sweep starts.
+    stage_settle_time_s: float = 0.5
+
+    # --- the VI's "Tune Rx1 Gain to DC value of ~0.5" stage ---
+    #: Target level, and the half-width of the window around it that counts as
+    #: in range (the VI's Upper Th / Lower Th).
     amp_target: float = 0.5
+    amp_tolerance: float = 0.05
+    #: The VI's +/-1 dB ladder, applied to the measure Tx and the Rx together.
+    gain_step_db: float = 1.0
+    gain_settle_time_s: float = 0.25
+    #: The VI's loop is unbounded; this keeps a level that can never be reached
+    #: (a dead path, a disconnected antenna) from running forever.
+    max_gain_steps: int = 60
 
-    # Digital changes land on the next Tx buffer, so this is short; the
-    # real wait is for fresh Rx chunks, in read_metric.
-    settle_time_s: float = 0.02
-    #: Settling after an analog gain change.
-    gain_settle_time_s: float = 0.05
-    #: Wall-clock ceiling for one pair. The grid fallback coarsens itself to fit.
-    time_budget_s: float = 25.0
+    #: Wall-clock ceiling for one pair, split across pairs by ``balance_all``.
+    #: A sweep that runs out stops where it is and keeps the best point found
+    #: so far.
+    #:
+    #: The VI's own dwells put a floor under this: 60*0.2 + 20*0.2 + 60*0.1 +
+    #: 100*0.1 = 32 s of sleeping per pair, plus four 0.5 s stage settles and
+    #: 240 waits for fresh Rx chunks -- call it 45 s. The default clears that
+    #: for three pairs; a rig with more should raise it rather than run every
+    #: sweep truncated.
+    time_budget_s: float = 300.0
 
-    # Digital weight used for the identification probe.
-    probe_amplitude: float = 0.5
-    # Target for |w*| as a fraction of max_amplitude; mid-scale leaves
-    # headroom for drift in both directions.
-    target_weight: float = 0.5
-    #: Below this the injection wastes DAC range; above max_amplitude it clips.
-    min_weight: float = 0.15
-    #: Analog gain re-centering attempts.
-    max_gain_steps: int = 3
-    #: Newton corrections after the initial solve.
-    refine_iterations: int = 3
-    #: Stop refining once a step moves the weight by less than this.
-    refine_tol: float = 1e-3
+    #: Asked before every sweep point. True ends the search where it stands, so
+    #: a Stop or a shutdown does not have to wait out the whole time budget.
+    should_abort: Callable[[], bool] | None = None
+
+    #: Called after every measurement with the live state of the loop, so the
+    #: UI can show phase, amplitude and gain moving instead of a frozen panel
+    #: and a progress-free wait. Never allowed to break the search.
+    on_progress: Callable[[dict], None] | None = None
 
     # ------------------------------------------------------------- internals
 
-    def _apply_weight(self, ch: DpicChannel, w: complex) -> complex:
-        """Clamp ``w`` into the digital range and program it. Returns what was set."""
-        amp = min(abs(w), self.max_amplitude)
-        phase = math.degrees(cmath.phase(w)) % 360.0
-        ch.set_phase(phase)
-        ch.set_amplitude(amp)
-        return cmath.rect(amp, math.radians(phase))
+    @staticmethod
+    def _points(start: float, step: float, count: int) -> list[float]:
+        return [start + i * step for i in range(max(int(count), 0))]
 
-    def _set_gain(self, ch: DpicChannel, gain_db: float) -> float:
-        lo, hi = ch.gain_range
-        gain_db = min(max(gain_db, lo), hi)
-        ch.set_gain(gain_db)
-        if ch.wait_gain_settle:
-            ch.wait_gain_settle()
-        else:
-            time.sleep(self.gain_settle_time_s)
-        return gain_db
+    def _report(self, ch: DpicChannel, stage_name: str, **fields):
+        """Publish the loop's live state. A reporting failure never stops a search."""
+        if self.on_progress is None:
+            return
+        payload = {
+            "stage": stage_name,
+            "inject_tx": ch.inject_tx,
+            "measure_tx": ch.measure_tx,
+            "measure_rx": ch.measure_rx,
+            **fields,
+        }
+        if ch.get_rx_gain is not None:
+            payload.setdefault("rx_gain_db", ch.get_rx_gain())
+        if ch.get_tx_gain is not None:
+            payload.setdefault("tx_gain_db", ch.get_tx_gain())
+        with contextlib.suppress(Exception):
+            self.on_progress(payload)
 
-    # -------------------------------------------------------- closed form
+    def _sweep(
+        self, name, values, apply, state, settle_s, ch
+    ) -> tuple[float | None, DpicStage]:
+        """Measure at every value; return the argmin and a record of the sweep.
 
-    def _solve(self, ch: DpicChannel, state: dict) -> dict | None:
-        """Two-probe identification plus Newton refinement.
-
-        Returns the best ``{"w", "gain", "metric"}`` found, or None when the
-        measurement path never produced a usable phasor.
+        The argmin is ``None`` when nothing on the sweep was measurable. The
+        stage is always returned, so a sweep that measured nothing -- or that
+        the time budget cut short -- is visible rather than silently absent.
         """
-        identified = self._identify(ch, state)
-        if identified is None:
-            return None
-        h, w_star, gain = identified
-        return self._refine(ch, state, h, w_star, gain)
-
-    def _identify(self, ch: DpicChannel, state: dict):
-        """Two-probe identification of the affine model r(w) = h*w + d.
-
-        Re-centers the inject Tx's analog gain when |w*| leaves the digital
-        range. Returns ``(h, w_star, gain)``, or None if no usable phasor.
-        """
-        gain = ch.get_gain() if ch.get_gain else float("nan")
-        h = None
-        w_star = None
-
-        for attempt in range(self.max_gain_steps + 1):
-            r0 = state["probe_complex"](0.0 + 0.0j)
-            r1 = state["probe_complex"](complex(self.probe_amplitude, 0.0))
-            if r0 is None or r1 is None:
-                return None
-            denom = r1 - r0
-            if abs(denom) <= 0:
-                return None
-
-            h = denom / self.probe_amplitude
-            w_star = -r0 / h
-
-            need_more = abs(w_star) > self.max_amplitude
-            need_less = abs(w_star) < self.min_weight
-            if not (need_more or need_less) or ch.set_gain is None:
-                break
-            if attempt == self.max_gain_steps or state["expired"]():
-                break
-
-            # h scales with analog gain: re-center |w*| and re-identify.
-            target = self.target_weight * self.max_amplitude
-            delta_db = 20.0 * math.log10(max(abs(w_star), 1e-9) / target)
-            new_gain = self._set_gain(ch, gain + delta_db)
-            if abs(new_gain - gain) < 1e-6:
-                break
-            gain = new_gain
-
-        if h is None:
-            return None
-        return h, w_star, gain
-
-    def _refine(self, ch: DpicChannel, state: dict, h, w_star, gain) -> dict | None:
-        """Newton refinement from the identified optimum.
-
-        One step is exact for the affine model; repeated to absorb hardware
-        nonlinearity and drift in d.
-        """
-        best = None
-        w = self._apply_weight(ch, w_star)
-        for _ in range(max(int(self.refine_iterations), 0) + 1):
-            ch.wait_settle()
-            r = state["measure_complex"]()
-            if r is None:
-                break
-            metric = abs(r)
-            if best is None or metric < best["metric"]:
-                best = {"w": w, "gain": gain, "metric": metric}
+        stage = DpicStage(name=name, planned=len(values))
+        started = time.monotonic()
+        best_value = None
+        best_metric = math.inf
+        for index, value in enumerate(values):
             if state["expired"]():
                 break
-            w_next = w - r / h
-            if abs(w_next - w) < self.refine_tol:
-                break
-            w = self._apply_weight(ch, w_next)
+            stage.visited += 1
+            applied = apply(value)
+            state["settle"](settle_s)
+            metric = state["measure"]()
+            self._report(
+                ch,
+                name,
+                point=index + 1,
+                planned=len(values),
+                value=applied,
+                metric=metric,
+                phase_deg=state["phase"](),
+                amplitude=state["amplitude"](),
+            )
+            if metric is None or not math.isfinite(metric):
+                continue
+            stage.measured += 1
+            if metric < best_metric:
+                best_metric = metric
+                best_value = value
+        stage.elapsed_s = time.monotonic() - started
+        if best_value is not None:
+            stage.best_value = best_value
+            stage.best_metric = best_metric
+        state["stages"].append(stage)
+        return best_value, stage
 
-        return best
+    def _tune_gain(self, ch: DpicChannel, state: dict, when: str) -> None:
+        """The VI's "Tune Rx1 Gain to DC value of ~0.5" stage.
 
-    # ---------------------------------------------------------- grid search
+        A +/-1 dB ladder applied to the **measure Tx's analog gain and the Rx
+        gain together**, one step per iteration with a settle in between, until
+        the measured level sits inside [target - tolerance, target + tolerance].
 
-    @staticmethod
-    def _frange(start: float, stop: float, step: float) -> list[float]:
-        if step <= 0:
-            return []
-        n = int(math.floor((stop - start) / step + 1e-9)) + 1
-        return [start + i * step for i in range(max(n, 0))]
+        Both halves move because the VI moves both: raising Rx gain alone lifts
+        the noise floor with the signal, while raising the measurement Tx as
+        well lifts the direct path that is about to be nulled. This ran as a
+        proportional single jump before -- fewer measurements, but it converged
+        in one invisible step, so nothing on the plot ever showed the level
+        being walked into range.
+        """
+        if not ch.tunes_gain():
+            return
 
-    def _grids(self, full_lo, full_hi, coarse, fine) -> list:
-        """Full pass at ``coarse``, then shrinking windows down to ``fine``."""
-        step = max(float(coarse), float(fine))
-        grids: list = [self._frange(full_lo, full_hi, step)]
-        while step > fine:
-            span = step
-            step = max(step / self.refine_factor, fine)
-            grids.append(("window", span, step))
-        return grids
+        lower = self.amp_target - self.amp_tolerance
+        upper = self.amp_target + self.amp_tolerance
+        rx_min, rx_max = ch.rx_gain_range
+        tx_min, tx_max = ch.tx_gain_range
 
-    def _sweep(self, grids, apply, state, best_value, best_metric):
-        for grid in grids:
-            if isinstance(grid, tuple):
-                _, span, step = grid
-                values = [best_value + off for off in self._frange(-span, span, step)]
-            else:
-                values = grid
-            for value in values:
-                if state["expired"]():
-                    return best_value, best_metric
-                apply(value)
-                metric = state["measure"]()
-                if metric is None or not math.isfinite(metric):
-                    continue
-                if metric < best_metric:
-                    best_metric = metric
-                    best_value = value
-        return best_value, best_metric
+        for step in range(max(int(self.max_gain_steps), 0)):
+            if state["expired"]():
+                return
+            level = state["measure"]()
+            self._report(
+                ch,
+                f"gain ({when})",
+                point=step + 1,
+                planned=self.max_gain_steps,
+                metric=level,
+                phase_deg=state["phase"](),
+                amplitude=state["amplitude"](),
+            )
+            if level is None or not math.isfinite(level):
+                return
+            if lower <= level <= upper:
+                return
 
-    def _search_grid(self, ch: DpicChannel, state: dict) -> dict | None:
-        best_phase = float(ch.start_phase_deg)
-        best_amp = float(ch.start_amplitude)
-        ch.set_phase(best_phase)
-        ch.set_amplitude(best_amp)
-        seed = state["measure"]()
-        best_metric = (
-            float(seed) if seed is not None and math.isfinite(seed) else float("inf")
-        )
+            delta = self.gain_step_db if level < lower else -self.gain_step_db
+            rx_gain = min(max(ch.get_rx_gain() + delta, rx_min), rx_max)
+            tx_gain = min(max(ch.get_tx_gain() + delta, tx_min), tx_max)
+
+            # Both already against the stop the level needs to move past: no
+            # further step can change anything, so stop rather than spin.
+            if rx_gain == ch.get_rx_gain() and tx_gain == ch.get_tx_gain():
+                return
+
+            ch.set_rx_gain(rx_gain)
+            ch.set_tx_gain(tx_gain)
+            state["settle"](self.gain_settle_time_s)
+
+    def _search(self, ch: DpicChannel, state: dict) -> dict | None:
+        """The VI's four sweeps. Returns the best point, or None if none measured.
+
+        Each sweep applies its winner and then waits ``stage_settle_time_s``,
+        matching the VI's 500 ms between stages -- long enough that the
+        settled point is visible on the plot before the next sweep starts
+        moving things again.
+        """
 
         def apply_phase(v):
-            ch.set_phase(v % 360.0)
+            value = v % 360.0
+            ch.set_phase(value)
+            state["last"]["phase"] = value
+            return value
 
         def apply_amp(v):
-            ch.set_amplitude(min(max(v, 0.0), self.max_amplitude))
+            value = min(max(v, 0.0), self.max_amplitude)
+            ch.set_amplitude(value)
+            state["last"]["amp"] = value
+            return value
 
-        sweep_amp = best_amp if best_amp > 0 else min(0.5, self.max_amplitude)
-        apply_amp(sweep_amp)
-        best_phase, best_metric = self._sweep(
-            self._grids(
+        phase = float(ch.start_phase_deg) % 360.0
+        amp = min(max(self.coarse_probe_amplitude, 0.0), self.max_amplitude)
+        metric = math.inf
+
+        # 1. Coarse phase over the full circle, at a small fixed amplitude.
+        apply_amp(amp)
+        found, stage = self._sweep(
+            "coarse phase",
+            self._points(
                 0.0,
-                360.0 - self.coarse_phase_step_deg,
                 self.coarse_phase_step_deg,
-                self.phase_step_deg,
+                round(360.0 / self.coarse_phase_step_deg),
             ),
             apply_phase,
             state,
-            best_phase,
-            best_metric,
+            self.coarse_settle_time_s,
+            ch,
         )
-        best_phase %= 360.0
-        apply_phase(best_phase)
+        if found is not None:
+            phase, metric = found % 360.0, stage.best_metric
+        apply_phase(phase)
+        state["settle"](self.stage_settle_time_s)
 
-        best_amp, best_metric = self._sweep(
-            self._grids(0.0, self.max_amplitude, self.coarse_amp_step, self.amp_step),
+        # 2. Coarse amplitude over the whole digital range, at that phase.
+        found, stage = self._sweep(
+            "coarse amplitude",
+            self._points(
+                0.0,
+                self.coarse_amp_step,
+                round(self.max_amplitude / self.coarse_amp_step),
+            ),
             apply_amp,
             state,
-            sweep_amp if best_amp <= 0.0 else best_amp,
-            best_metric,
+            self.coarse_settle_time_s,
+            ch,
         )
-        best_amp = min(max(best_amp, 0.0), self.max_amplitude)
-        apply_amp(best_amp)
+        if found is not None:
+            amp, metric = found, stage.best_metric
+        apply_amp(amp)
+        state["settle"](self.stage_settle_time_s)
 
-        # Narrow phase re-pass at the final amplitude.
-        fine_span = max(
-            self.coarse_phase_step_deg / self.refine_factor, self.phase_step_deg
-        )
-        best_phase, best_metric = self._sweep(
-            [("window", fine_span, self.phase_step_deg)],
+        # 3. Fine phase, +/- one coarse step around the coarse winner.
+        found, stage = self._sweep(
+            "fine phase",
+            self._points(
+                phase - self.coarse_phase_step_deg,
+                self.phase_step_deg,
+                round(2.0 * self.coarse_phase_step_deg / self.phase_step_deg),
+            ),
             apply_phase,
             state,
-            best_phase,
-            best_metric,
+            self.fine_settle_time_s,
+            ch,
         )
-        best_phase %= 360.0
-        apply_phase(best_phase)
+        if found is not None:
+            phase, metric = found % 360.0, stage.best_metric
+        apply_phase(phase)
+        state["settle"](self.stage_settle_time_s)
 
-        if not math.isfinite(best_metric):
+        # 4. Fine amplitude, +/- one coarse step around the coarse winner.
+        found, stage = self._sweep(
+            "fine amplitude",
+            self._points(
+                amp - self.coarse_amp_step,
+                self.amp_step,
+                round(2.0 * self.coarse_amp_step / self.amp_step),
+            ),
+            apply_amp,
+            state,
+            self.fine_settle_time_s,
+            ch,
+        )
+        if found is not None:
+            amp, metric = found, stage.best_metric
+        amp = min(max(amp, 0.0), self.max_amplitude)
+        apply_amp(amp)
+        state["settle"](self.stage_settle_time_s)
+
+        if not math.isfinite(metric):
             return None
-        return {
-            "w": cmath.rect(best_amp, math.radians(best_phase)),
-            "gain": ch.get_gain() if ch.get_gain else float("nan"),
-            "metric": best_metric,
-        }
+        return {"phase": phase, "amp": amp, "metric": metric}
 
     # ------------------------------------------------------------------- api
 
     def _measurement_state(self, ch: DpicChannel, deadline: float, counter: dict):
-        """The callbacks a search runs on, sharing one measurement counter."""
+        """The callbacks a search runs on, sharing one counter and stage list.
+
+        ``phase`` and ``amplitude`` read back the values last applied, so a
+        progress report always describes the point that was just measured
+        rather than the one about to be set.
+        """
+        last = {"phase": float(ch.start_phase_deg), "amp": float(ch.start_amplitude)}
 
         def expired():
+            if self.should_abort is not None and self.should_abort():
+                return True
             return time.monotonic() >= deadline
+
+        def settle(seconds: float):
+            if seconds > 0:
+                ch.wait_settle(seconds)
 
         def measure():
             value = ch.read_metric()
@@ -334,103 +454,122 @@ class DpicBalancer:
                 counter["n"] += 1
             return value
 
-        def measure_complex():
-            if ch.read_complex is None:
-                return None
-            value = ch.read_complex()
-            if value is not None:
-                counter["n"] += 1
-            return value
-
-        def probe_complex(w):
-            self._apply_weight(ch, w)
-            ch.wait_settle()
-            return measure_complex()
-
         return {
             "expired": expired,
+            "settle": settle,
             "measure": measure,
-            "measure_complex": measure_complex,
-            "probe_complex": probe_complex,
+            "phase": lambda: last["phase"],
+            "amplitude": lambda: last["amp"],
+            "last": last,
+            "stages": [],
         }
+
+    def _failed(self, ch, counter, elapsed, start_metric, stages, message):
+        """Restore the pre-search settings and report why."""
+        # Never leave the hardware at an arbitrary point (or amplitude 0).
+        ch.set_phase(float(ch.start_phase_deg))
+        ch.set_amplitude(float(ch.start_amplitude))
+        return DpicBalanceResult(
+            inject_tx=ch.inject_tx,
+            measure_tx=ch.measure_tx,
+            measure_rx=ch.measure_rx,
+            best_phase_deg=float(ch.start_phase_deg),
+            best_amplitude=float(ch.start_amplitude),
+            min_metric=0.0,
+            inject_gain_db=ch.get_gain() if ch.get_gain else float("nan"),
+            method="none",
+            converged=False,
+            num_measurements=counter["n"],
+            elapsed_s=elapsed,
+            start_metric=start_metric,
+            stages=stages,
+            message=message,
+        )
 
     def balance(self, ch: DpicChannel) -> DpicBalanceResult:
         t_start = time.monotonic()
-        deadline = t_start + self.time_budget_s
         counter = {"n": 0}
-        state = self._measurement_state(ch, deadline, counter)
-        measure = state["measure"]
 
-        # A null search is meaningless if the direct path is in the noise.
-        if ch.auto_gain_rx:
-            ch.auto_gain_rx()
+        # A null search is meaningless if the direct path is in the noise. This
+        # runs on its own deadline, *outside* the search budget: it is a
+        # prerequisite of the search, not part of it, and on a slow measurement
+        # path it could otherwise eat the whole budget and leave every sweep to
+        # break on its first point.
+        gain_state = self._measurement_state(
+            ch, time.monotonic() + self.time_budget_s, counter
+        )
+        self._tune_gain(ch, gain_state, "before")
+
+        deadline = time.monotonic() + self.time_budget_s
+        state = self._measurement_state(ch, deadline, counter)
+        stages = state["stages"]
 
         # Seeded from current settings, so a failed search can restore them.
         ch.set_phase(float(ch.start_phase_deg))
         ch.set_amplitude(float(ch.start_amplitude))
-        ch.wait_settle()
-        seed = measure()
+        state["settle"](self.stage_settle_time_s)
+        seed = state["measure"]()
         start_metric = (
             float(seed) if seed is not None and math.isfinite(seed) else float("nan")
         )
 
-        best = None
-        method = "none"
-        if ch.read_complex is not None:
-            best = self._solve(ch, state)
-            if best is not None:
-                method = "closed_form"
-
-        # Grid fallback: no complex measurement, or the solve did not win.
-        needs_grid = best is None or (
-            math.isfinite(start_metric) and best["metric"] >= start_metric
-        )
-        if needs_grid and not state["expired"]():
-            grid_best = self._search_grid(ch, state)
-            if grid_best is not None and (
-                best is None or grid_best["metric"] < best["metric"]
-            ):
-                best = grid_best
-                method = "grid"
-
-        elapsed = time.monotonic() - t_start
-
-        if best is None:
-            # Never leave the hardware at an arbitrary point (or amplitude 0).
-            ch.set_phase(float(ch.start_phase_deg))
-            ch.set_amplitude(float(ch.start_amplitude))
-            return DpicBalanceResult(
-                inject_tx=ch.inject_tx,
-                measure_tx=ch.measure_tx,
-                measure_rx=ch.measure_rx,
-                best_phase_deg=float(ch.start_phase_deg),
-                best_amplitude=float(ch.start_amplitude),
-                min_metric=0.0,
-                inject_gain_db=ch.get_gain() if ch.get_gain else float("nan"),
-                method="none",
-                converged=False,
-                num_measurements=counter["n"],
-                elapsed_s=elapsed,
-                start_metric=start_metric,
+        if seed is None:
+            return self._failed(
+                ch,
+                counter,
+                time.monotonic() - t_start,
+                start_metric,
+                stages,
+                "no metric could be read before the search started -- check that "
+                "the measure Tx/Rx pair is in the channel map and streaming",
             )
 
-        if ch.set_gain and not math.isnan(best["gain"]):
-            self._set_gain(ch, best["gain"])
-        w = self._apply_weight(ch, best["w"])
+        best = self._search(ch, state)
+        elapsed = time.monotonic() - t_start
+        gain_db = ch.get_gain() if ch.get_gain else float("nan")
+
+        if best is None:
+            visited = sum(stage.visited for stage in stages)
+            return self._failed(
+                ch,
+                counter,
+                elapsed,
+                start_metric,
+                stages,
+                (
+                    f"the {self.time_budget_s:.0f}s budget expired before any "
+                    "sweep point was measured"
+                )
+                if visited == 0
+                else "no sweep point returned a usable metric",
+            )
+
+        # The direct path is nulled now, so the Rx sits far below its operating
+        # point; the VI re-runs the same gain stage here. Done after min_metric
+        # is fixed, so the null depth is measured at a single gain setting, and
+        # on a fresh deadline for the same reason as the first call.
+        after_state = self._measurement_state(
+            ch, time.monotonic() + self.time_budget_s, counter
+        )
+        after_state["last"].update({"phase": best["phase"], "amp": best["amp"]})
+        self._tune_gain(ch, after_state, "after")
 
         return DpicBalanceResult(
             inject_tx=ch.inject_tx,
             measure_tx=ch.measure_tx,
             measure_rx=ch.measure_rx,
-            best_phase_deg=math.degrees(cmath.phase(w)) % 360.0,
-            best_amplitude=abs(w),
+            best_phase_deg=best["phase"],
+            best_amplitude=best["amp"],
             min_metric=best["metric"],
-            inject_gain_db=best["gain"],
-            method=method,
+            inject_gain_db=gain_db,
+            measure_tx_gain_db=ch.get_tx_gain() if ch.get_tx_gain else float("nan"),
+            measure_rx_gain_db=ch.get_rx_gain() if ch.get_rx_gain else float("nan"),
+            method="grid",
             converged=True,
             num_measurements=counter["n"],
             elapsed_s=elapsed,
             start_metric=start_metric,
+            stages=stages,
         )
 
     def balance_all(self, channels: Sequence[DpicChannel]) -> list[DpicBalanceResult]:
@@ -442,6 +581,13 @@ class DpicBalancer:
         saved = self.time_budget_s
         try:
             self.time_budget_s = per_pair
-            return [self.balance(ch) for ch in channels]
+            results = []
+            for ch in channels:
+                # Checked between pairs as well as inside each sweep: an abort
+                # during pair 1 must not start pair 2.
+                if self.should_abort is not None and self.should_abort():
+                    break
+                results.append(self.balance(ch))
+            return results
         finally:
             self.time_budget_s = saved

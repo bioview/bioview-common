@@ -88,14 +88,138 @@ def test_dpic_balancer_picks_minimum():
         start_amplitude=0.5,
     )
     balancer = DpicBalancer(
-        phase_step_deg=45.0,
         coarse_phase_step_deg=45.0,
-        amp_step=1.0,
+        phase_step_deg=45.0,
         coarse_amp_step=1.0,
-        settle_time_s=0,
+        amp_step=1.0,
     )
     result = balancer.balance(ch)
     assert result.best_phase_deg == 45.0
+    assert result.method == "grid"
+
+
+def test_dpic_sweeps_match_the_labview_vi():
+    """Grid geometry is the VI's: 60/20 coarse points, +/- one coarse step fine."""
+    phases, amps = [], []
+    state = {"phase": 0.0, "amp": 0.0}
+
+    def set_phase(p):
+        state["phase"] = p
+        phases.append(p)
+
+    def set_amplitude(a):
+        state["amp"] = a
+        amps.append(a)
+
+    # Minimum at phase 174 deg / amplitude 0.372, on neither coarse grid.
+    def read_metric():
+        return abs(
+            0.372 * np.exp(1j * np.deg2rad(174.0))
+            - state["amp"] * np.exp(1j * np.deg2rad(state["phase"]))
+        )
+
+    balancer = DpicBalancer(time_budget_s=1e6)
+    result = balancer.balance(
+        DpicChannel(
+            inject_tx=1,
+            measure_tx=0,
+            measure_rx=0,
+            set_phase=set_phase,
+            set_amplitude=set_amplitude,
+            read_metric=read_metric,
+        )
+    )
+
+    # 1 seed + 60 coarse phase + 20 coarse amp + 60 fine phase + 100 fine amp.
+    assert result.num_measurements == 241
+    # Coarse phase sweep: 0, 6, ... 354, all at the 0.1 probe amplitude.
+    assert phases[1:61] == [6.0 * i for i in range(60)]
+    assert amps[1] == 0.1
+    # Coarse amplitude sweep: 0, 0.05, ... 0.95.
+    assert len(amps[2:22]) == 20
+    assert abs(amps[21] - 0.95) < 1e-9
+    # Fine sweeps: 60 phase points of 0.2 deg, 100 amplitude points of 0.001.
+    fine_phase = phases[62:122]
+    assert len(fine_phase) == 60
+    assert abs((fine_phase[1] - fine_phase[0]) - 0.2) < 1e-9
+    fine_amp = amps[23:123]
+    assert len(fine_amp) == 100
+    assert abs((fine_amp[1] - fine_amp[0]) - 0.001) < 1e-9
+
+    assert abs(result.best_phase_deg - 174.0) <= 0.2
+    assert abs(result.best_amplitude - 0.372) <= 0.001
+
+
+def _gain_channel(level, gains, **kwargs):
+    """A channel whose measured level is a function of the gains the ladder sets."""
+    return DpicChannel(
+        inject_tx=1,
+        measure_tx=0,
+        measure_rx=0,
+        set_phase=lambda p: None,
+        set_amplitude=lambda a: None,
+        read_metric=lambda: level(gains),
+        get_rx_gain=lambda: gains["rx"],
+        set_rx_gain=lambda v: gains.__setitem__("rx", v),
+        get_tx_gain=lambda: gains["tx"],
+        set_tx_gain=lambda v: gains.__setitem__("tx", v),
+        **kwargs,
+    )
+
+
+def test_dpic_gain_stage_runs_on_both_sides_of_the_search():
+    """The VI tunes gain before the sweep and again once the path is nulled."""
+    stages = []
+    gains = {"rx": 20.0, "tx": 20.0}
+    balancer = DpicBalancer(
+        coarse_phase_step_deg=90.0,
+        phase_step_deg=90.0,
+        coarse_amp_step=0.5,
+        amp_step=0.5,
+        on_progress=lambda p: stages.append(p["stage"]),
+    )
+    # Already in range, so each stage measures once and returns.
+    result = balancer.balance(_gain_channel(lambda g: 0.5, gains))
+
+    assert result.converged
+    assert stages[0] == "gain (before)"
+    assert stages[-1] == "gain (after)"
+
+
+def test_dpic_gain_ladder_steps_tx_and_rx_together():
+    """The VI's +/-1 dB ladder moves the measure Tx and the Rx in lockstep."""
+    gains = {"rx": 20.0, "tx": 20.0}
+
+    # Level starts far below target and rises 0.05 per dB of Rx gain, so the
+    # ladder has to climb six steps to reach the 0.45..0.55 window.
+    def level(g):
+        return 0.2 + 0.05 * (g["rx"] - 20.0)
+
+    balancer = DpicBalancer(gain_step_db=1.0, amp_target=0.5, amp_tolerance=0.05)
+    balancer._tune_gain(
+        _gain_channel(level, gains),
+        balancer._measurement_state(_gain_channel(level, gains), 1e18, {"n": 0}),
+        "before",
+    )
+
+    assert gains["rx"] == 25.0
+    assert gains["tx"] == 25.0, "the measure Tx must track the Rx, as in the VI"
+
+
+def test_dpic_gain_ladder_stops_at_the_end_of_the_range():
+    """A level that can never be reached must not spin forever."""
+    gains = {"rx": 70.0, "tx": 70.0}
+    balancer = DpicBalancer(max_gain_steps=200)
+    ch = _gain_channel(
+        lambda g: 0.0,  # never reaches the target, whatever the gain
+        gains,
+        rx_gain_range=(0.0, 76.0),
+        tx_gain_range=(0.0, 76.0),
+    )
+    balancer._tune_gain(ch, balancer._measurement_state(ch, 1e18, {"n": 0}), "before")
+
+    assert gains["rx"] == 76.0
+    assert gains["tx"] == 76.0
 
 
 def test_scheme_from_config_factory():
@@ -232,7 +356,7 @@ def test_calibration_toggles_on_every_scheme():
 def test_dpic_balancer_seeds_from_current_settings():
     """The search must never silently settle on amplitude 0."""
     state = {"phase": 30.0, "amp": 0.7}
-    balancer = DpicBalancer(phase_step_deg=5.0, amp_step=0.1, settle_time_s=0)
+    balancer = DpicBalancer(phase_step_deg=5.0, amp_step=0.1)
     result = balancer.balance(
         DpicChannel(
             inject_tx=1,

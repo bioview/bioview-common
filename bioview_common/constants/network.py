@@ -27,6 +27,16 @@ DISCOVERY_CACHE_TTL = 60
 # worst case across a handful of device groups.
 STREAMING_COMMAND_TIMEOUT = 45
 
+# A DPIC balance is a hardware search over a few hundred points per cancellation
+# loop; `dpic_balance.time_budget_s` (120 s by default) bounds the search itself
+# and the server answers the command immediately, so this is only the ceiling on
+# how long the client keeps polling for the outcome before giving up on it.
+DPIC_BALANCE_TIMEOUT = 900
+# Also the rate at which the settings panel's live phase/amplitude/gain
+# values refresh during a balance, so it is a display rate as much as a
+# completion check.
+DPIC_BALANCE_POLL_INTERVAL = 0.5
+
 # Challenge/response secret; override with BIOVIEW_SHARED_SECRET on both
 # machines. The default suits localhost and trusted-LAN use.
 SHARED_SECRET = os.environ.get("BIOVIEW_SHARED_SECRET", "bioview-default-shared-secret")

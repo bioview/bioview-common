@@ -40,8 +40,11 @@ BASE_DUMMY_CONFIG = {
     "dpic_balance": {
         "auto_on_start": False,
         "amp_target": 0.5,
-        "phase_step_deg": 1.0,
-        "amp_step": 0.05,
+        "coarse_phase_step_deg": 6.0,
+        "coarse_amp_step": 0.05,
+        "coarse_probe_amplitude": 0.1,
+        "phase_step_deg": 0.2,
+        "amp_step": 0.001,
         "settle_time_s": 0.1,
     },
     "channel_map": None,

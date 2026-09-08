@@ -78,8 +78,14 @@ class BurstEnvelopeMixin:
     def _init_calibration(self, samp_rate: float, cal_config: dict):
         self._cal_config = dict(cal_config or {})
         self._cal_enabled = bool(self._cal_config.get("enabled", False))
+        # Depth of the AM overlay relative to the Tx carrier: the pilot's peak
+        # amplitude is this fraction of whatever the channel is transmitting,
+        # so it tracks tx_amplitude instead of being an absolute level.
+        #
+        # 1.0 is 100% modulation -- the carrier reaches zero at the envelope's
+        # trough. Beyond that the carrier inverts, so that is the ceiling.
         self._modulation_depth = min(
-            float(self._cal_config.get("modulation_depth", 0.2)), 0.5
+            max(float(self._cal_config.get("modulation_depth", 0.2)), 0.0), 1.0
         )
         inject = self._cal_config.get("inject_channels", [0])
         self._inject_channels = set(
@@ -123,10 +129,17 @@ class BurstEnvelopeMixin:
             return True
         return False
 
+    @property
+    def modulation_depth(self) -> float:
+        """Pilot amplitude as a fraction of the Tx carrier, 0..1."""
+        return self._modulation_depth
+
     def _apply_calibration(
         self, carrier: np.ndarray, tx_idx: int, start_sample: int
     ) -> np.ndarray:
         if not self._cal_enabled or tx_idx not in self._inject_channels:
+            return carrier
+        if self._modulation_depth <= 0.0:
             return carrier
         env, _ = self._envelope.generate(len(carrier), start_sample)
         return carrier * (1.0 + self._modulation_depth * env)
