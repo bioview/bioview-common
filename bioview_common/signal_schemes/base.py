@@ -26,12 +26,20 @@ class SignalScheme(ABC):
     def generate(self, n_samples: int, start_sample: int) -> np.ndarray:
         """Return (n_tx_channels, n_samples) complex64 array."""
 
-    def cycle_length(self) -> Optional[int]:
+    def cycle_length(self) -> int | None:
         """Period in samples for cyclic buffering; None if aperiodic."""
         return None
 
     def tx_phase_at(self, tx_idx: int, sample_idx: int) -> float:
         """Analytic Tx phase (rad) at sample index."""
+        return 0.0
+
+    def tx_phase_offset(self, tx_idx: int) -> float:
+        """Static programmed Tx phase (rad), without the carrier ramp.
+
+        This is what the demodulator subtracts; :meth:`tx_phase_at` also carries
+        the IF ramp that downconversion has already removed.
+        """
         return 0.0
 
     def get_tx_amplitude(self, tx_idx: int) -> float:
@@ -40,10 +48,12 @@ class SignalScheme(ABC):
     def get_num_tx_channels(self) -> int:
         return 0
 
-    def update_param(self, param: str, value) -> None:
+    # Optional hooks: concrete no-ops, so a scheme with no tunable parameters
+    # need not override them.
+    def update_param(self, param: str, value) -> None:  # noqa: B027
         pass
 
-    def set_calibration_enabled(self, enabled: bool) -> None:
+    def set_calibration_enabled(self, enabled: bool) -> None:  # noqa: B027
         pass
 
     def get_calibration_reference(

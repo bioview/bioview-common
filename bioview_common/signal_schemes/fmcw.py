@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import math
-from typing import List, Optional
-
 import numpy as np
 
 from .base import SignalScheme, RxProcessor
@@ -61,7 +58,7 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
         samp_rate: float,
         num_tx: int,
         fmcw_config: dict,
-        tx_amplitude: List[float],
+        tx_amplitude: list[float],
         calibration: dict | None = None,
     ):
         self.samp_rate = float(samp_rate)
@@ -84,7 +81,7 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
     def get_tx_amplitude(self, tx_idx: int) -> float:
         return self.tx_amplitude[tx_idx] if tx_idx < len(self.tx_amplitude) else 1.0
 
-    def cycle_length(self) -> Optional[int]:
+    def cycle_length(self) -> int | None:
         if self._cal_enabled:
             return None
         return self._period_samples
@@ -92,8 +89,10 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
     def _chirp_phase(self, t: np.ndarray) -> np.ndarray:
         """Phase of linear FM chirp: 2*pi*(f0*t + 0.5*k*t^2)."""
         t_clipped = np.clip(t, 0, self.chirp_duration_s)
-        return 2.0 * np.pi * (
-            self.chirp_start_hz * t_clipped + 0.5 * self._k * t_clipped ** 2
+        return (
+            2.0
+            * np.pi
+            * (self.chirp_start_hz * t_clipped + 0.5 * self._k * t_clipped**2)
         )
 
     def generate(self, n_samples: int, start_sample: int) -> np.ndarray:
@@ -107,9 +106,7 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
             amp = self.get_tx_amplitude(tx_idx)
             phases = self._chirp_phase(t)
             carrier = np.zeros(n_samples, dtype=np.complex64)
-            carrier[in_chirp] = (
-                amp * np.exp(1j * phases[in_chirp]).astype(np.complex64)
-            )
+            carrier[in_chirp] = amp * np.exp(1j * phases[in_chirp]).astype(np.complex64)
             out[tx_idx] = self._apply_calibration(carrier, tx_idx, start_sample)
         return out
 
@@ -134,6 +131,7 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
         if param == "tx_amplitude":
             self.tx_amplitude = [float(v) for v in value]
         elif param == "fmcw":
+            enabled = self._cal_enabled
             self.__init__(
                 self.samp_rate,
                 self.num_tx,
@@ -141,3 +139,8 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
                 self.tx_amplitude,
                 self._cal_config,
             )
+            self.set_calibration_enabled(enabled)
+        else:
+            # Calibration params are shared by every scheme; without this the
+            # calibration overlay could only be toggled on CW.
+            self.handle_common_param(param, value)

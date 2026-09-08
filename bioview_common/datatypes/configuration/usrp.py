@@ -1,14 +1,13 @@
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
+
 from ..devices import DeviceType
 from .config import BaseConfig
 
-from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
-"""
-We make some general assumptions, specifically -
-* Each device has two working channels
-* Each device uses the default data formats
-* Each device uses internal timing reference and clock
-* Each device sends waveforms of amplitude 1
+"""USRP device configuration.
+
+Assumes two working channels per device, default data formats, an internal
+clock reference, and unit-amplitude waveforms.
 """
 
 BASE_USRP_CONFIG = {
@@ -35,7 +34,6 @@ BASE_USRP_CONFIG = {
         "enabled": False,
         "shape": "triangle",
         "num_pulses": 5,
-        "pulse_duration_s": 0.1,
         "packet_spacing_s": 1.0,
         "envelope_freq_hz": 10.0,
         "modulation_depth": 0.2,
@@ -46,9 +44,17 @@ BASE_USRP_CONFIG = {
     "dpic_balance": {
         "auto_on_start": False,
         "amp_target": 0.5,
-        "phase_step_deg": 0.1,
-        "amp_step": 0.05,
-        "settle_time_s": 0.5,
+        # Digital phase/amplitude changes land on the next Tx buffer, so the
+        # settle is short; the real wait is for fresh Rx chunks.
+        "settle_time_s": 0.02,
+        "time_budget_s": 120.0,
+        # Grid resolution. The coarse steps are the LabVIEW VI's 60 phase and
+        # 20 amplitude points; the fine steps sweep +/- one coarse step.
+        "coarse_phase_step_deg": 6.0,
+        "coarse_amp_step": 0.05,
+        "coarse_probe_amplitude": 0.1,
+        "phase_step_deg": 0.2,
+        "amp_step": 0.001,
     },
     "fmcw": {
         "chirp_start_hz": 50e3,
@@ -70,6 +76,7 @@ BASE_USRP_CONFIG = {
     "hardware": None,
 }
 
+
 class USRPConfiguration(BaseConfig):
     def __init__(self, config_dict: dict):
         self.cfg_type = SUPPORTED_CONFIGURATION_TYPES.USRP
@@ -81,16 +88,9 @@ class USRPConfiguration(BaseConfig):
         for key, value in config_dict.items():
             setattr(self, key, value)
 
-        # Set device type. TODO: Remove 
+        # Set device type. TODO: Remove
         self.device_type = DeviceType.USRP.value
 
-        # Set-up default absolute channel mapping, assuming single device.
-        # This assumes that Tx/Rx are always used in pairs
-        # This must be updated if using MIMO with multiple USRPs
+        # Default absolute channel map for a single device with paired Tx/Rx;
+        # multi-device MIMO must override it.
         self.absolute_channel_nums = self.tx_channels
-    
-    def get_filter_bw(self):
-        if not isinstance(self.if_filter_bw, (list, tuple)):
-            return [self.if_filter_bw for _ in self.tx_channels]
-        elif len(self.if_filter_bw) == len(self.tx_channels):
-            return self.if_filter_bw

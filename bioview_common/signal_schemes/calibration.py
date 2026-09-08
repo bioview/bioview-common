@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal, Tuple
+from typing import Literal
 
 import numpy as np
+
 
 ShapeType = Literal["triangle", "sawtooth", "rectangle"]
 
@@ -17,7 +18,7 @@ class BurstEnvelope:
         fs: float,
         shape: ShapeType = "triangle",
         num_pulses: int = 5,
-        pulse_duration_s: float = 0.1,
+        pulse_duration_s: float | None = None,
         packet_spacing_s: float = 1.0,
         envelope_freq_hz: float = 10.0,
         envelope_offset: float = 0.0,
@@ -25,38 +26,45 @@ class BurstEnvelope:
         self.fs = float(fs)
         self.shape = shape
         self.num_pulses = max(int(num_pulses), 1)
-        self.pulse_duration_s = max(float(pulse_duration_s), 1e-6)
+        # Optional override for the single-pulse period. Omitted =>
+        # 1 / envelope_freq_hz, matching the reference B210_2CHANNEL.
+        self.pulse_duration_s = (
+            max(float(pulse_duration_s), 1e-6) if pulse_duration_s else None
+        )
         self.packet_spacing_s = max(float(packet_spacing_s), 1e-6)
         self.envelope_freq_hz = max(float(envelope_freq_hz), 1e-9)
         self.envelope_offset = float(envelope_offset)
         self._recalc()
 
+    @property
+    def pulse_freq_hz(self) -> float:
+        """Shape frequency actually used, honouring any pulse_duration override."""
+        if self.pulse_duration_s:
+            return 1.0 / self.pulse_duration_s
+        return self.envelope_freq_hz
+
     def _recalc(self):
         self.period_len = max(1, int(round(self.packet_spacing_s * self.fs)))
-        burst_samples = int(round(self.num_pulses * self.fs / self.envelope_freq_hz))
+        burst_samples = int(round(self.num_pulses * self.fs / self.pulse_freq_hz))
         self.burst_len = max(1, min(burst_samples, self.period_len))
-
-    def update_config(self, **kwargs):
-        for key, val in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, val)
-        self._recalc()
 
     def _shape_wave(self, t_local: np.ndarray) -> np.ndarray:
         if self.shape == "rectangle":
             return np.ones_like(t_local, dtype=np.float64)
-        phase = t_local * self.envelope_freq_hz
+        phase = t_local * self.pulse_freq_hz
         if self.shape == "sawtooth":
             return 2.0 * (phase - np.floor(phase)) - 1.0
         return 2.0 * np.abs(2.0 * (phase - np.floor(phase + 0.5))) - 1.0
 
-    def generate(self, n: int, start_sample: int) -> Tuple[np.ndarray, np.ndarray]:
+    def generate(self, n: int, start_sample: int) -> tuple[np.ndarray, np.ndarray]:
         """Return (envelope, gate) arrays of length n."""
         idx = start_sample + np.arange(n, dtype=np.int64)
         pos = idx % self.period_len
         gate = (pos < self.burst_len).astype(np.float32)
 
-        t_local = (pos % self.burst_len).astype(np.float64) / self.fs
+        # Raw within-period position, as the reference does: identical inside
+        # the gate, and still correct when burst_len is clamped to period_len.
+        t_local = pos.astype(np.float64) / self.fs
         wave = self._shape_wave(t_local) + self.envelope_offset
 
         out = np.zeros(n, dtype=np.float32)
@@ -70,18 +78,24 @@ class BurstEnvelopeMixin:
     def _init_calibration(self, samp_rate: float, cal_config: dict):
         self._cal_config = dict(cal_config or {})
         self._cal_enabled = bool(self._cal_config.get("enabled", False))
+        # Depth of the AM overlay relative to the Tx carrier: the pilot's peak
+        # amplitude is this fraction of whatever the channel is transmitting,
+        # so it tracks tx_amplitude instead of being an absolute level.
+        #
+        # 1.0 is 100% modulation -- the carrier reaches zero at the envelope's
+        # trough. Beyond that the carrier inverts, so that is the ceiling.
         self._modulation_depth = min(
-            float(self._cal_config.get("modulation_depth", 0.2)), 0.5
+            max(float(self._cal_config.get("modulation_depth", 0.2)), 0.0), 1.0
         )
         inject = self._cal_config.get("inject_channels", [0])
         self._inject_channels = set(
-            inject if isinstance(inject, (list, tuple)) else [inject]
+            inject if isinstance(inject, list | tuple) else [inject]
         )
         self._envelope = BurstEnvelope(
             fs=samp_rate,
             shape=self._cal_config.get("shape", "triangle"),
             num_pulses=self._cal_config.get("num_pulses", 5),
-            pulse_duration_s=self._cal_config.get("pulse_duration_s", 0.1),
+            pulse_duration_s=self._cal_config.get("pulse_duration_s"),
             packet_spacing_s=self._cal_config.get("packet_spacing_s", 1.0),
             envelope_freq_hz=self._cal_config.get("envelope_freq_hz", 10.0),
             envelope_offset=self._cal_config.get("envelope_offset", 0.0),
@@ -89,14 +103,43 @@ class BurstEnvelopeMixin:
 
     def set_calibration_enabled(self, enabled: bool) -> None:
         self._cal_enabled = bool(enabled)
+        # Written back so a later scheme re-init cannot resurrect the stale
+        # enabled flag from the original config.
+        self._cal_config["enabled"] = self._cal_enabled
 
     def calibration_enabled(self) -> bool:
         return self._cal_enabled
+
+    def handle_common_param(self, param: str, value) -> bool:
+        """Apply params every scheme shares. Returns True if consumed."""
+        if param == "calibration":
+            self._init_calibration(self.samp_rate, value or {})
+            return True
+        if param == "calibration.enabled":
+            self.set_calibration_enabled(bool(value))
+            return True
+        if param.startswith("calibration."):
+            self._cal_config[param.split(".", 1)[1]] = value
+            enabled = self._cal_enabled
+            self._init_calibration(self.samp_rate, self._cal_config)
+            self.set_calibration_enabled(enabled)
+            return True
+        if param == "tx_phase" and hasattr(self, "tx_phase_deg"):
+            self.tx_phase_deg = [float(v) for v in value]
+            return True
+        return False
+
+    @property
+    def modulation_depth(self) -> float:
+        """Pilot amplitude as a fraction of the Tx carrier, 0..1."""
+        return self._modulation_depth
 
     def _apply_calibration(
         self, carrier: np.ndarray, tx_idx: int, start_sample: int
     ) -> np.ndarray:
         if not self._cal_enabled or tx_idx not in self._inject_channels:
+            return carrier
+        if self._modulation_depth <= 0.0:
             return carrier
         env, _ = self._envelope.generate(len(carrier), start_sample)
         return carrier * (1.0 + self._modulation_depth * env)

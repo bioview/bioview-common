@@ -26,6 +26,8 @@ class Response(Enum):
     DEVICE_CONNECTING = "device_connecting"
     DEVICE_CONNECTED = "device_connected"
     DEVICE_DISCONNECTED = "device_disconnected"
+    DEVICE_LIST = "device_list"
+    DEVICE_CONFIG_UPDATED = "device_config_updated"
 
 
 SUPPORTED_RESPONSES = [x.name for x in Response]

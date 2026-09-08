@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from typing import List, Optional
 
 import numpy as np
 
@@ -53,9 +52,9 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
     def __init__(
         self,
         samp_rate: float,
-        if_freq: List[float],
-        tx_amplitude: List[float],
-        tx_phase_deg: List[float],
+        if_freq: list[float],
+        tx_amplitude: list[float],
+        tx_phase_deg: list[float],
         calibration: dict | None = None,
     ):
         self.samp_rate = float(samp_rate)
@@ -79,7 +78,7 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
     def _get_lcm(self, a: int, b: int) -> int:
         return int(a * b / math.gcd(int(a), int(b)))
 
-    def cycle_length(self) -> Optional[int]:
+    def cycle_length(self) -> int | None:
         if self._cal_enabled:
             return None
         if len(self.if_freq) == 1:
@@ -95,18 +94,20 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
         inc = 2.0 * math.pi * self.if_freq[tx_idx] / self.samp_rate
         return phase_rad + inc * sample_idx
 
+    def tx_phase_offset(self, tx_idx: int) -> float:
+        if tx_idx >= len(self.tx_phase_deg):
+            return 0.0
+        return math.radians(self.tx_phase_deg[tx_idx])
+
     def generate(self, n_samples: int, start_sample: int) -> np.ndarray:
         n_tx = len(self.if_freq)
         out = np.zeros((n_tx, n_samples), dtype=np.complex64)
-        t = (start_sample + np.arange(n_samples, dtype=np.float64)) / self.samp_rate
 
         for idx in range(n_tx):
             phase = self.tx_phase_at(idx, start_sample)
             phase_inc = 2.0 * np.pi * self.if_freq[idx] / self.samp_rate
             phases = phase + np.arange(n_samples) * phase_inc
-            carrier = (
-                self.tx_amplitude[idx] * np.exp(1j * phases).astype(np.complex64)
-            )
+            carrier = self.tx_amplitude[idx] * np.exp(1j * phases).astype(np.complex64)
             out[idx] = self._apply_calibration(carrier, idx, start_sample)
 
         return out
@@ -120,15 +121,7 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":
             self.tx_amplitude = [float(v) for v in value]
-        elif param == "tx_phase":
-            self.tx_phase_deg = [float(v) for v in value]
         elif param == "if_freq":
             self.if_freq = [float(v) for v in value]
-        elif param == "calibration":
-            self._init_calibration(self.samp_rate, value)
-        elif param == "calibration.enabled":
-            self.set_calibration_enabled(bool(value))
-        elif param.startswith("calibration."):
-            key = param.split(".", 1)[1]
-            self._cal_config[key] = value
-            self._init_calibration(self.samp_rate, self._cal_config)
+        else:
+            self.handle_common_param(param, value)

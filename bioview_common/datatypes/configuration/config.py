@@ -1,6 +1,6 @@
-import json
 from enum import Enum
 from typing import Any, Dict, Optional
+
 
 class BaseConfig:
     def __init__(self, config_dict=None):
@@ -30,7 +30,8 @@ class BaseConfig:
         for key, value in self.__dict__.items():
             if key.startswith("_") or callable(value):
                 continue
-            # Enum values (e.g. cfg_type) are not JSON serializable, so store their value.
+            # Enum values (e.g. cfg_type) are not JSON serializable, so
+            # store their value.
             if isinstance(value, Enum):
                 value = value.value
             result[key] = value
@@ -66,20 +67,21 @@ def _resolve_device_type(value: Dict[str, Any]) -> Optional[str]:
     key = str(cfg_type)
     return mapping.get(key) or mapping.get(key.upper()) or mapping.get(key.lower())
 
+
 class Configuration:
     def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
         self.experiment = None
         self.devices = {}  # device_id -> BaseConfig subclass instance
-        
+
         if config_dict:
             self.load_from_dict(config_dict)
 
     def load_from_dict(self, config_dict: Dict[str, Any]):
-        from .experiment import ExperimentConfiguration
-        from .usrp import USRPConfiguration
+        from ..devices import DeviceType
         from .biopac import BiopacConfiguration
         from .dummy import DummyConfiguration
-        from ..devices import DeviceType
+        from .experiment import ExperimentConfiguration
+        from .usrp import USRPConfiguration
 
         for key, value in config_dict.items():
             if key.lower() == "experiment":
@@ -105,25 +107,15 @@ class Configuration:
         result = {}
         if self.experiment:
             result["Experiment"] = self.experiment.to_dict()
-        
+
         for device_id, device_cfg in self.devices.items():
             result[device_id] = device_cfg.to_dict()
-        
+
         return result
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict())
-
-    @classmethod
-    def from_json(cls, json_str: str):
-        return cls(json.loads(json_str))
 
     @classmethod
     def from_dict(cls, data_dict: Dict[str, Any]):
         return cls(data_dict)
-
-    def get_device_config(self, device_id: str):
-        return self.devices.get(device_id)
 
     def update_device_param(self, device_id: str, param: str, value: Any):
         if device_id not in self.devices:

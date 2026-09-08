@@ -1,17 +1,15 @@
-from .commands import Command, IPCCommand, SUPPORTED_COMMANDS
-from .responses import Response, SUPPORTED_RESPONSES
+from .commands import SUPPORTED_COMMANDS, Command, IPCCommand
+from .responses import SUPPORTED_RESPONSES, Response
 from .status import ClientStatus, DeviceStatus, ServerStatus
 
-MAX_BUFFER_SIZE = 4096
 
 __all__ = [
-    "Command", 
+    "Command",
     "IPCCommand",
     "SUPPORTED_COMMANDS",
-    "Response", 
+    "Response",
     "SUPPORTED_RESPONSES",
-    "ClientStatus", 
-    "DeviceStatus", 
+    "ClientStatus",
+    "DeviceStatus",
     "ServerStatus",
-    "MAX_BUFFER_SIZE"
 ]

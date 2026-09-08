@@ -1,14 +1,13 @@
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
+
 from ..devices import DeviceType
 from .config import BaseConfig
 
-from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
-"""
-Configuration for the virtual "dummy" device.
+"""Configuration for the virtual "dummy" device.
 
-Legacy mode synthesizes phase-shifted sine waves. When ``hardware`` and
-``channel_map`` are provided, the dummy backend runs the same CW / calibration /
-DPIC pipeline as USRP using a virtual MIMO channel model.
+Without ``hardware``/``channel_map`` it synthesizes phase-shifted sine waves;
+with them it runs the full USRP pipeline against a virtual MIMO channel.
 """
 
 BASE_DUMMY_CONFIG = {
@@ -31,7 +30,6 @@ BASE_DUMMY_CONFIG = {
         "enabled": False,
         "shape": "triangle",
         "num_pulses": 5,
-        "pulse_duration_s": 0.1,
         "packet_spacing_s": 1.0,
         "envelope_freq_hz": 10.0,
         "modulation_depth": 0.2,
@@ -42,8 +40,11 @@ BASE_DUMMY_CONFIG = {
     "dpic_balance": {
         "auto_on_start": False,
         "amp_target": 0.5,
-        "phase_step_deg": 1.0,
-        "amp_step": 0.05,
+        "coarse_phase_step_deg": 6.0,
+        "coarse_amp_step": 0.05,
+        "coarse_probe_amplitude": 0.1,
+        "phase_step_deg": 0.2,
+        "amp_step": 0.001,
         "settle_time_s": 0.1,
     },
     "channel_map": None,

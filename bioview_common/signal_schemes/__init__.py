@@ -2,11 +2,12 @@ from .base import SignalScheme
 from .calibration import BurstEnvelope, BurstEnvelopeMixin
 from .cdma import CdmaScheme
 from .cw import CwScheme
-from .dpic import DpicBalanceResult, DpicBalancer
+from .dpic import DpicBalancer, DpicBalanceResult, DpicChannel
 from .factory import scheme_from_config
 from .fmcw import FmcwScheme
 from .normalization import differential_phase, normalized_amplitude
 from .pulsed_doppler import PulsedDopplerScheme
+
 
 __all__ = [
     "SignalScheme",
@@ -19,6 +20,7 @@ __all__ = [
     "scheme_from_config",
     "DpicBalancer",
     "DpicBalanceResult",
+    "DpicChannel",
     "normalized_amplitude",
     "differential_phase",
 ]

@@ -1,7 +1,8 @@
+from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
+
 from ..devices import DeviceType
 from .config import BaseConfig
 
-from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 BASE_BIOPAC_CONFIG = {
     "channels": [1, 1, 1, 1],
@@ -31,6 +32,35 @@ class BiopacConfiguration(BaseConfig):
         self.device_code = MODEL_CODE_MAPPING.get(model, MODEL_CODE_MAPPING["MP36"])
         self.device_type = DeviceType.BIOPAC.value
         self.absolute_channel_nums = self.channels
+
+    # Read from the nested ``hardware`` entry in preference to the top level,
+    # so a UI edit has to be written to both.
+    _HARDWARE_MIRRORED_PARAMS = (
+        "channels",
+        "samp_rate",
+        "model",
+        "connection_type",
+        "port",
+        "labels",
+    )
+
+    def set_param(self, param, value):
+        super().set_param(param, value)
+
+        if param == "channels":
+            self.absolute_channel_nums = value
+        if param == "model":
+            self.device_code = MODEL_CODE_MAPPING.get(value, MODEL_CODE_MAPPING["MP36"])
+
+        if param not in self._HARDWARE_MIRRORED_PARAMS:
+            return
+
+        hardware = getattr(self, "hardware", None)
+        if not isinstance(hardware, dict):
+            return
+        for entry in hardware.values():
+            if isinstance(entry, dict):
+                entry[param] = value
 
     def get_channels(self):
         channels = list(self.channels)

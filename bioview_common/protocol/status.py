@@ -13,19 +13,16 @@ class DeviceStatus(Enum):
 
 class ServerStatus(IntEnum):
     SHUTDOWN_SERVER = -2  # Signal server to shutdown
-    RESET_SERVER = -1 # Signal server reset
+    RESET_SERVER = -1  # Signal server reset
     CLIENT_DISCONNECTED = 0
     CLIENT_CONNECTED = 1
     DEVICES_DISCONNECTED = 2
     DEVICES_CONNECTED = 3
     STREAMING = 4
-    
+
 
 class ClientStatus(IntEnum):
-    """
-    Level numbers are assigned on the basis of connectivity.
-    This helps make logic for connection checks easier.
-    """
+    """Ordered by connectivity, so connection checks can compare levels."""
 
     DEFAULT = -1
     SERVER_DISCONNECTED = 0

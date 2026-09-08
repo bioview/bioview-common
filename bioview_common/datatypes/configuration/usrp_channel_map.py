@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 from bioview_common.datatypes.datasource import DataSource
 
@@ -12,10 +11,10 @@ from bioview_common.datatypes.datasource import DataSource
 class GlobalChannelRegistry:
     """Flat global Tx/Rx indices across all hardware in a virtual USRP group."""
 
-    tx_entries: List[Tuple[str, int]] = field(default_factory=list)
-    rx_entries: List[Tuple[str, int]] = field(default_factory=list)
-    tx_if_freq: List[float] = field(default_factory=list)
-    tx_filter_bw: List[float] = field(default_factory=list)
+    tx_entries: list[tuple[str, int]] = field(default_factory=list)
+    rx_entries: list[tuple[str, int]] = field(default_factory=list)
+    tx_if_freq: list[float] = field(default_factory=list)
+    tx_filter_bw: list[float] = field(default_factory=list)
 
     @property
     def num_tx(self) -> int:
@@ -28,15 +27,22 @@ class GlobalChannelRegistry:
 
 @dataclass
 class DpicPair:
+    """One direct-path cancellation loop.
+
+    ``measure_rx`` is a *receive* index and must be given explicitly unless it
+    happens to equal ``measure_tx`` (only true for a 1x1 layout).
+    """
+
     inject_tx: int
     measure_tx: int
+    measure_rx: int | None = None
 
     @property
     def target_rx(self) -> int:
-        return self.measure_tx
+        return self.measure_tx if self.measure_rx is None else self.measure_rx
 
 
-def build_global_registry(hardware: Dict[str, dict]) -> GlobalChannelRegistry:
+def build_global_registry(hardware: dict[str, dict]) -> GlobalChannelRegistry:
     """Flatten hardware dict (keyed by device_name) into global channel indices."""
     registry = GlobalChannelRegistry()
     for _device_name, hw in hardware.items():
@@ -44,7 +50,7 @@ def build_global_registry(hardware: Dict[str, dict]) -> GlobalChannelRegistry:
         rx_channels = hw.get("rx_channels", [0])
         if_freqs = hw.get("if_freq", [100e3] * len(tx_channels))
         filter_bw = hw.get("if_filter_bw", 5e3)
-        if not isinstance(filter_bw, (list, tuple)):
+        if not isinstance(filter_bw, list | tuple):
             filter_bw = [filter_bw] * len(tx_channels)
 
         for local_idx, ch in enumerate(tx_channels):
@@ -60,32 +66,64 @@ def build_global_registry(hardware: Dict[str, dict]) -> GlobalChannelRegistry:
     return registry
 
 
+def inject_rx_indices(channel_map: dict, registry: GlobalChannelRegistry) -> set[int]:
+    """Rx indices sharing a physical channel with a DPIC inject Tx.
+
+    A radio channel used to radiate the cancellation tone is not receiving a
+    measurement, so its Rx half produces rows that are dead by construction --
+    every TxNRxM pair against it is noise. Matching is on ``(device, channel)``
+    from the registry, so it holds however the hardware is laid out.
+    """
+    inject_txs = {p["inject_tx"] for p in channel_map.get("dpic", [])}
+    inject_ports = {
+        registry.tx_entries[t] for t in inject_txs if t < len(registry.tx_entries)
+    }
+    return {r for r, entry in enumerate(registry.rx_entries) if entry in inject_ports}
+
+
 def _measurement_tx_rx_sets(
     channel_map: dict, registry: GlobalChannelRegistry
-) -> Tuple[List[int], List[int]]:
+) -> tuple[list[int], list[int]]:
     layout = channel_map.get("layout", "full_nxn")
     inject_txs = {p["inject_tx"] for p in channel_map.get("dpic", [])}
+
+    if layout == "custom":
+        # Pairs are written out one by one; the author said exactly what they
+        # want and nothing is inferred.
+        pairs = channel_map.get("pairs", [])
+        return sorted({p["tx"] for p in pairs}), sorted({p["rx"] for p in pairs})
 
     if layout == "hybrid_mimo":
         tx_global = list(channel_map.get("mimo", {}).get("tx_global", []))
         rx_global = list(channel_map.get("mimo", {}).get("rx_global", []))
-    elif layout == "custom":
-        pairs = channel_map.get("pairs", [])
-        tx_global = sorted({p["tx"] for p in pairs})
-        rx_global = sorted({p["rx"] for p in pairs})
     else:
-        tx_global = [i for i in range(registry.num_tx) if i not in inject_txs]
+        tx_global = list(range(registry.num_tx))
         rx_global = list(range(registry.num_rx))
+
+    # Adding a DPIC pair retires both halves of the inject channel: the Tx is
+    # radiating the cancellation tone rather than a measurement signal, and its
+    # Rx has nothing to receive. Applied here rather than left to the config so
+    # the grid follows the pair list automatically.
+    inject_rxs = inject_rx_indices(channel_map, registry)
+    tx_global = [t for t in tx_global if t not in inject_txs]
+    rx_global = [r for r in rx_global if r not in inject_rxs]
 
     return tx_global, rx_global
 
 
 def resolve_channel_map(
     group_id: str,
-    channel_map: Optional[dict],
-    hardware: Dict[str, dict],
-) -> Tuple[Set[DataSource], GlobalChannelRegistry, List[DpicPair]]:
-    """Build DataSource set and DPIC pairs from hardware + channel_map config."""
+    channel_map: dict | None,
+    hardware: dict[str, dict],
+    disp_freq: float | None = None,
+) -> tuple[set[DataSource], GlobalChannelRegistry, list[DpicPair]]:
+    """Build DataSource set and DPIC pairs from hardware + channel_map config.
+
+    ``disp_freq`` is the rate (Hz) at which the processing pipeline actually
+    emits display samples for these sources. The client sizes its plot buffers
+    from it, so it must be the post-decimation rate, not the Rx sample rate.
+    """
+    src_kwargs = {} if disp_freq is None else {"disp_freq": float(disp_freq)}
     registry = build_global_registry(hardware)
 
     if not channel_map:
@@ -97,15 +135,19 @@ def resolve_channel_map(
     tx_label_map = {g: i + 1 for i, g in enumerate(tx_global)}
     rx_label_map = {g: i + 1 for i, g in enumerate(rx_global)}
 
-    data_sources: Set[DataSource] = set()
+    data_sources: set[DataSource] = set()
     ch_ctr = 0
 
     if layout == "custom":
         for pair in channel_map.get("pairs", []):
             t_idx = pair["tx"]
             r_idx = pair["rx"]
-            label = pair.get("label") or f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
-            source = DataSource(group_id=group_id, channel=ch_ctr, label=label)
+            label = (
+                pair.get("label") or f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
+            )
+            source = DataSource(
+                group_id=group_id, channel=ch_ctr, label=label, **src_kwargs
+            )
             source.tx_idx = t_idx
             source.rx_idx = r_idx
             source.tx_label = tx_label_map.get(t_idx, t_idx + 1)
@@ -116,7 +158,9 @@ def resolve_channel_map(
         for r_idx in rx_global:
             for t_idx in tx_global:
                 label = f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
-                source = DataSource(group_id=group_id, channel=ch_ctr, label=label)
+                source = DataSource(
+                    group_id=group_id, channel=ch_ctr, label=label, **src_kwargs
+                )
                 source.tx_idx = t_idx
                 source.rx_idx = r_idx
                 source.tx_label = tx_label_map[t_idx]
@@ -125,13 +169,17 @@ def resolve_channel_map(
                 ch_ctr += 1
 
     dpic_pairs = [
-        DpicPair(inject_tx=p["inject_tx"], measure_tx=p["measure_tx"])
+        DpicPair(
+            inject_tx=p["inject_tx"],
+            measure_tx=p["measure_tx"],
+            measure_rx=p.get("measure_rx"),
+        )
         for p in channel_map.get("dpic", [])
     ]
     return data_sources, registry, dpic_pairs
 
 
-def build_hardware_dict(device_cfg, group_id: str) -> Dict[str, dict]:
+def build_hardware_dict(device_cfg, group_id: str) -> dict[str, dict]:
     """Return hardware dict keyed by device_name; wrap single-device configs."""
     hardware = device_cfg.get_param("hardware")
     if hardware:
@@ -167,7 +215,7 @@ def resolve_device_serial(
     hw_entry: dict,
     discovered: dict,
     cache_lookup,
-) -> Optional[str]:
+) -> str | None:
     """Resolve serial: config -> cache -> discovery by name."""
     serial = hw_entry.get("serial")
     if serial:

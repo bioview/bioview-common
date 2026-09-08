@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from .base import SignalScheme
 from .cdma import CdmaScheme
 from .cw import CwScheme
 from .fmcw import FmcwScheme
 from .pulsed_doppler import PulsedDopplerScheme
 
+from typing import List 
 
 def scheme_from_config(
     samp_rate: float,
@@ -27,15 +26,15 @@ def scheme_from_config(
     if len(tx_phase) < num_tx:
         tx_phase = list(tx_phase) + [0.0] * (num_tx - len(tx_phase))
 
-    calibration = config.get("calibration", {})
-    if calibration.get("inject_channels") and global_tx_offset:
-        cal = dict(calibration)
-        cal["inject_channels"] = [
-            c - global_tx_offset
-            for c in cal["inject_channels"]
-            if c >= global_tx_offset
-        ]
-        calibration = cal
+    # ``inject_channels`` is global Tx indexing but a scheme sees only its own
+    # device, so always translate -- the default [0] included.
+    calibration = dict(config.get("calibration", {}))
+    inject = calibration.get("inject_channels", [0])
+    calibration["inject_channels"] = [
+        c - global_tx_offset
+        for c in inject
+        if global_tx_offset <= c < global_tx_offset + num_tx
+    ]
 
     if scheme_type == "fmcw":
         return FmcwScheme(
@@ -67,6 +66,7 @@ def scheme_from_config(
         )
     
     if_freq: List[float] = config.get("if_freq", [100e3] * num_tx)
+    
     if len(if_freq) < num_tx:
         if_freq = list(if_freq) + [if_freq[-1]] * (num_tx - len(if_freq))
     return CwScheme(

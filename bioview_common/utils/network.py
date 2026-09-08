@@ -1,19 +1,30 @@
+import contextlib
 import ipaddress
-import socket
 import json
-import time
+import os
+import socket
 import struct
-from typing import List, Dict, Any, Tuple
+import time
+from typing import Any
 
-from ..protocol import (
-    Command, 
-    Response, 
-    SUPPORTED_COMMANDS, 
-    SUPPORTED_RESPONSES, 
-    MAX_BUFFER_SIZE
-)
 from ..constants import APP_VERSION
+from ..protocol import SUPPORTED_COMMANDS, SUPPORTED_RESPONSES, Command, Response
 from .logs import log_print
+
+
+def set_exclusive_bind(sock: socket.socket) -> None:
+    """Configure a listener so bind() fails if another process serves the port.
+
+    Windows lets SO_REUSEADDR bind a port that is actively being listened on;
+    SO_EXCLUSIVEADDRUSE restores the POSIX guarantee.
+    """
+    if os.name == "nt":
+        with contextlib.suppress(AttributeError, OSError):
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        with contextlib.suppress(OSError):
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
 
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -29,6 +40,35 @@ def get_ip():
 
     return IP
 
+
+_LOCAL_ADDR_CACHE = {"addrs": None, "at": 0.0}
+_LOCAL_ADDR_TTL = 30.0
+
+
+def get_local_addresses() -> set:
+    """Every IPv4 address belonging to this machine (loopback plus each NIC).
+
+    Needed because a machine on a public-address network reports a non-private
+    IP, so private-range membership alone cannot mean "same machine".
+    """
+    now = time.time()
+    if (
+        _LOCAL_ADDR_CACHE["addrs"] is not None
+        and now - _LOCAL_ADDR_CACHE["at"] < _LOCAL_ADDR_TTL
+    ):
+        return _LOCAL_ADDR_CACHE["addrs"]
+
+    addrs = {"127.0.0.1", "0.0.0.0", "::1"}
+    with contextlib.suppress(Exception):
+        addrs.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    with contextlib.suppress(Exception):
+        addrs.add(get_ip())
+
+    _LOCAL_ADDR_CACHE["addrs"] = addrs
+    _LOCAL_ADDR_CACHE["at"] = now
+    return addrs
+
+
 def is_local_request(address: str) -> bool:
     try:
         ip = ipaddress.ip_address(address)
@@ -37,6 +77,7 @@ def is_local_request(address: str) -> bool:
         )
     except ValueError:
         return False
+
 
 def get_hostname() -> str:
     try:
@@ -47,6 +88,7 @@ def get_hostname() -> str:
         pass
     return get_ip()
 
+
 def get_app_info():
     return {
         "ip": get_ip(),
@@ -54,6 +96,7 @@ def get_app_info():
         "name": "BioView",
         "version": APP_VERSION,
     }
+
 
 def recv_exactly(sock: socket.socket, num_bytes: int):
     """Read exactly num_bytes from the socket. Returns the bytes, or None if the
@@ -69,11 +112,12 @@ def recv_exactly(sock: socket.socket, num_bytes: int):
         remaining -= len(chunk)
     return b"".join(chunks)
 
-def recv_message(sock: socket.socket, logger = None):
-    """Receive a single length-framed control message and return its raw JSON
-    bytes (or None if the connection was closed). Control messages are framed as
-    [Length (4 bytes, big-endian)][JSON payload] so they survive TCP coalescing
-    and fragmentation and are not limited to MAX_BUFFER_SIZE."""
+
+def recv_message(sock: socket.socket, logger=None):
+    """Receive one length-framed control message, or None if the peer closed.
+
+    Framed as [Length (4 bytes, big-endian)][JSON payload].
+    """
     header = recv_exactly(sock, 4)
     if not header:
         return None
@@ -82,16 +126,17 @@ def recv_message(sock: socket.socket, logger = None):
         return b""
     return recv_exactly(sock, length)
 
+
 def _send_framed(sock: socket.socket, payload: bytes):
     """Length-prefix and send a control payload atomically."""
     sock.sendall(struct.pack("!I", len(payload)) + payload)
 
+
 def send_command(
-    sock: socket.socket, 
-    command: Command, 
-    params: Dict = None, 
-    logger = None, 
-    buffer_size: int = MAX_BUFFER_SIZE
+    sock: socket.socket,
+    command: Command,
+    params: dict = None,
+    logger=None,
 ) -> bytes:
     if not isinstance(command, Command) or command.name not in SUPPORTED_COMMANDS:
         log_print(logger, "error", f"Invalid command: {command}")
@@ -119,16 +164,14 @@ def send_command(
         log_print(logger, "error", f"Error occurred while receiving response: {e}")
         return None
 
+
 def send_response(
-    sock: socket.socket, 
-    response: Response, 
-    params: Dict = None, 
-    logger = None
+    sock: socket.socket, response: Response, params: dict = None, logger=None
 ):
     if not isinstance(response, Response) or response.name not in SUPPORTED_RESPONSES:
         log_print(logger, "error", f"Invalid response: {response}")
-        return None 
-    
+        return None
+
     try:
         processed_params = {}
         if params:
@@ -138,28 +181,24 @@ def send_response(
                 else:
                     processed_params[k] = v
 
-        response_dict = {
-            "type": response.name,
-            "payload": processed_params
-        }
+        response_dict = {"type": response.name, "payload": processed_params}
         response_json = json.dumps(response_dict).encode("utf-8")
         _send_framed(sock, response_json)
-    except Exception as e: 
+    except Exception as e:
         log_print(logger, "error", f"Error occurred while sending response: {e}")
 
-def send_datachunk(sock: socket.socket, data: Any, meta: Dict = None, logger = None): 
-    """
-    Sends a numpy data chunk in a binary format:
-    [Total Length (4 bytes)] [Header Length (4 bytes)] [JSON Header] [Raw Data]
 
-    The streaming data path only ever carries numpy arrays. Optional metadata
-    (e.g. the ordered list of data sources describing each row) is merged into
-    the JSON header so the client can route rows without relying on global order.
+def send_datachunk(sock: socket.socket, data: Any, meta: dict = None, logger=None):
+    """Send a numpy chunk as
+    [Total Length (4)][Header Length (4)][JSON Header][Raw Data].
+
+    Metadata such as the ordered source list is merged into the JSON header.
     """
     if not hasattr(data, "tobytes"):
         log_print(
-            logger, "error",
-            f"send_datachunk expects a numpy array on the data path, got {type(data)}"
+            logger,
+            "error",
+            f"send_datachunk expects a numpy array on the data path, got {type(data)}",
         )
         return
 
@@ -168,7 +207,7 @@ def send_datachunk(sock: socket.socket, data: Any, meta: Dict = None, logger = N
         header = {
             "shape": data.shape,
             "dtype": str(data.dtype),
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
         if meta:
             header.update(meta)
@@ -176,14 +215,17 @@ def send_datachunk(sock: socket.socket, data: Any, meta: Dict = None, logger = N
         header_bytes = json.dumps(header).encode("utf-8")
         header_len = len(header_bytes)
         total_len = 4 + header_len + len(raw_data)
-        
+
         # Pack everything
         packet = struct.pack("!II", total_len, header_len) + header_bytes + raw_data
         sock.sendall(packet)
-    except Exception as e: 
+    except Exception as e:
         log_print(logger, "error", f"Error occurred while sending data: {e}")
 
-def parse_and_validate_message(data: bytes, expected_type_list: List[str], logger = None) -> Tuple[str, Dict]:
+
+def parse_and_validate_message(
+    data: bytes, expected_type_list: list[str], logger=None
+) -> tuple[str, dict]:
     if not data:
         return None, None
 
@@ -205,8 +247,10 @@ def parse_and_validate_message(data: bytes, expected_type_list: List[str], logge
 
     return msg_type, payload
 
-def parse_and_validate_command(data: bytes, logger = None) -> Tuple[str, Dict]:
+
+def parse_and_validate_command(data: bytes, logger=None) -> tuple[str, dict]:
     return parse_and_validate_message(data, SUPPORTED_COMMANDS, logger)
 
-def parse_and_validate_response(data: bytes, logger = None) -> Tuple[str, Dict]:
+
+def parse_and_validate_response(data: bytes, logger=None) -> tuple[str, dict]:
     return parse_and_validate_message(data, SUPPORTED_RESPONSES, logger)
