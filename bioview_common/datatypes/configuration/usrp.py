@@ -1,7 +1,7 @@
 from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 from ..devices import DeviceType
-from .config import BaseConfig, merged_with_defaults, register_device_configuration
+from .config import BaseConfig
 
 
 """USRP device configuration.
@@ -33,14 +33,8 @@ BASE_USRP_CONFIG = {
     "calibration": {
         "enabled": False,
         "shape": "triangle",
-        # The three burst timings, all editable from the settings panel and
-        # from a .bvi file: how many pulses one burst contains, how long each
-        # of them lasts, and how often the burst repeats.
         "num_pulses": 5,
-        "pulse_duration_s": 0.1,
         "packet_spacing_s": 1.0,
-        # Only used when "pulse_duration_s" is absent or zero, which is how
-        # the reference B210_2CHANNEL names the same quantity.
         "envelope_freq_hz": 10.0,
         "modulation_depth": 0.2,
         "envelope_offset": 0.0,
@@ -61,10 +55,6 @@ BASE_USRP_CONFIG = {
         "coarse_probe_amplitude": 0.1,
         "phase_step_deg": 0.2,
         "amp_step": 0.001,
-        # Balance every radio in the group at once. The loops on different
-        # USRPs are physically independent, so running them in series only
-        # multiplied the wait.
-        "parallel_devices": True,
     },
     "fmcw": {
         "chirp_start_hz": 50e3,
@@ -77,9 +67,11 @@ BASE_USRP_CONFIG = {
         "pri_s": 1e-3,
         "doppler_if_hz": 100e3,
     },
-    # Per-Tx/Rx-pair quantities to stream. ["amplitude", "phase"] advertises
-    # two rows per pair; see usrp_channel_map.STREAM_COMPONENTS.
-    "components": ["amplitude"],
+    "cdma": {
+        "chip_rate_hz": 100e3,
+        "code_length": 1024,
+        "code_type": "Walsh-Hadamard",
+    },
     "channel_map": None,
     "hardware": None,
 }
@@ -92,9 +84,8 @@ class USRPConfiguration(BaseConfig):
         # Initialize using default values
         super().__init__(BASE_USRP_CONFIG)
 
-        # Update with provided values. Merged, not replaced: a config that
-        # names one calibration key keeps the defaults for the rest.
-        for key, value in merged_with_defaults(BASE_USRP_CONFIG, config_dict).items():
+        # Update with provided values
+        for key, value in config_dict.items():
             setattr(self, key, value)
 
         # Set device type. TODO: Remove
@@ -103,10 +94,3 @@ class USRPConfiguration(BaseConfig):
         # Default absolute channel map for a single device with paired Tx/Rx;
         # multi-device MIMO must override it.
         self.absolute_channel_nums = self.tx_channels
-
-
-register_device_configuration(
-    DeviceType.USRP.value,
-    SUPPORTED_CONFIGURATION_TYPES.USRP.value,
-    USRPConfiguration,
-)

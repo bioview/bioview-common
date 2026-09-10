@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from .base import SignalScheme
+from .cdma import CdmaScheme
 from .cw import CwScheme
 from .fmcw import FmcwScheme
 from .pulsed_doppler import PulsedDopplerScheme
 
+from typing import List 
 
 def scheme_from_config(
     samp_rate: float,
@@ -52,7 +54,19 @@ def scheme_from_config(
             if_freq=if_freq,
             calibration=calibration,
         )
-    if_freq: list[float] = config.get("if_freq", [100e3] * num_tx)
+    if scheme_type == "cdma":
+        if_freq = config.get("if_freq", [100e3] * num_tx)
+        return CdmaScheme(
+            samp_rate=samp_rate,
+            num_tx=num_tx,
+            cdma_config=config.get("cdma", {}),
+            tx_amplitude=tx_amplitude,
+            if_freq=if_freq,
+            calibration=calibration,
+        )
+    
+    if_freq: List[float] = config.get("if_freq", [100e3] * num_tx)
+    
     if len(if_freq) < num_tx:
         if_freq = list(if_freq) + [if_freq[-1]] * (num_tx - len(if_freq))
     return CwScheme(

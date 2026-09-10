@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Optional, Tuple
 
 import numpy as np
+
+
+class RxProcessor(ABC):
+    """Abstract base for stateful per-Tx-channel receive DSP."""
+
+    @abstractmethod
+    def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
+        """Process a chunk of received samples and return baseband data."""
+        pass
 
 
 class SignalScheme(ABC):
@@ -51,3 +61,9 @@ class SignalScheme(ABC):
     ) -> np.ndarray:
         """Gated calibration envelope for save stream (zeros outside bursts)."""
         return np.zeros(n_samples, dtype=np.float32)
+
+    def create_rx_processor(
+        self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
+    ) -> Optional[RxProcessor]:
+        """Create a stateful receive processor for this scheme."""
+        return None
