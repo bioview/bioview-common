@@ -12,6 +12,12 @@ BASE_EXPERIMENT_CONFIG = {
     "save_dir": None,
     "data_sources": [],
     "timed_modes": [],
+    # Host output used to play routine instructions (audio/video). ``None``
+    # takes whatever Qt calls the default output; anything else is matched
+    # against the enumerated output descriptions (substring, case-insensitive).
+    # A machine with several speakers has no useful "default", and an
+    # instruction played to the wrong one is silent to the participant.
+    "audio_output_device": None,
 }
 
 

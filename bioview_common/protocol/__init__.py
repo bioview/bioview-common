@@ -1,6 +1,6 @@
 from .commands import SUPPORTED_COMMANDS, Command, IPCCommand
 from .responses import SUPPORTED_RESPONSES, Response
-from .status import ClientStatus, DeviceStatus, ServerStatus
+from .status import ClientStatus, DeviceStatus
 
 
 __all__ = [
@@ -11,5 +11,4 @@ __all__ = [
     "SUPPORTED_RESPONSES",
     "ClientStatus",
     "DeviceStatus",
-    "ServerStatus",
 ]

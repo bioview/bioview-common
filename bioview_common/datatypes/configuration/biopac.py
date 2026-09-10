@@ -1,7 +1,7 @@
 from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 from ..devices import DeviceType
-from .config import BaseConfig
+from .config import BaseConfig, register_device_configuration
 
 
 BASE_BIOPAC_CONFIG = {
@@ -65,3 +65,10 @@ class BiopacConfiguration(BaseConfig):
     def get_channels(self):
         channels = list(self.channels)
         return channels + [0] * (16 - len(channels))
+
+
+register_device_configuration(
+    DeviceType.BIOPAC.value,
+    SUPPORTED_CONFIGURATION_TYPES.BIOPAC.value,
+    BiopacConfiguration,
+)

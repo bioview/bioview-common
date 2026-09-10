@@ -71,6 +71,41 @@
       "action": "Check the unit is powered on and connected, and that its driver is installed."
     },
     {
+      "id": "uhd-fpga-version-mismatch",
+      "match_any": [
+        "please update your fpga",
+        "fpga compatibility number",
+        "expected fpga compatibility number",
+        "the firmware build type",
+        "please run: uhd_images_downloader"
+      ],
+      "summary": "The USRP's FPGA image does not match the installed UHD",
+      "detail": "UHD and the image on the radio come as a matched pair, and this radio is carrying an image from a different UHD release, so the driver refuses to open it.",
+      "action": "Run uhd_images_downloader on the server machine, then flash the radio with uhd_image_loader and power cycle it. If UHD itself was upgraded recently, every radio needs re-flashing."
+    },
+    {
+      "id": "uhd-bindings-mismatch",
+      "match_any": [
+        "has no attribute 'usrp'",
+        "invalid uhd python bindings",
+        "dll load failed while importing libpyuhd"
+      ],
+      "match_all": [],
+      "summary": "The UHD Python bindings do not match the installed UHD",
+      "detail": "The 'uhd' module imported successfully but is not the one the installed driver provides -- usually a bindings build for a different Python version, or a stray uhd.py on the path.",
+      "action": "Install the UHD Python API from Ettus Research built for this Python version, and make sure no file named uhd.py sits on PYTHONPATH. Then restart the BioView server."
+    },
+    {
+      "id": "uhd-not-installed",
+      "match_all": [
+        "no module named",
+        "uhd"
+      ],
+      "summary": "The USRP driver (UHD) is not installed on the server",
+      "detail": "BioView could not import the UHD Python module, so no USRP can be discovered or opened.",
+      "action": "Install the Ettus USRP Hardware Driver with its Python API on the server machine, then restart BioView."
+    },
+    {
       "id": "backend-unavailable",
       "match_any": [
         "backend is not available",

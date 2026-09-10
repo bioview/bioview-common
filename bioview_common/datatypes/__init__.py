@@ -1,25 +1,28 @@
 from .configuration import (
-    Configuration,
-    parse_configuration_file,
     SUPPORTED_CONFIGURATION_TYPES,
-    ExperimentConfiguration,
-    USRPConfiguration,
     BiopacConfiguration,
-    DummyConfiguration,
+    Configuration,
+    ExperimentConfiguration,
+    MicrophoneConfiguration,
+    USRPConfiguration,
+    parse_configuration_file,
+    register_device_configuration,
 )
 from .datasource import DataSource
 from .devices import SUPPORTED_DEVICES, DeviceType
-from .errors import AuthenticationError, ValidationError, DeviceError
+from .errors import AuthenticationError, DeviceError, ValidationError
 from .workers import PausableWorker
+
 
 __all__ = [
     "Configuration",
-    "parse_configuration_file", 
+    "parse_configuration_file",
+    "register_device_configuration",
     "SUPPORTED_CONFIGURATION_TYPES",
     "ExperimentConfiguration",
     "USRPConfiguration",
     "BiopacConfiguration",
-    "DummyConfiguration",
+    "MicrophoneConfiguration",
     "DataSource",
     "DeviceType",
     "SUPPORTED_DEVICES",

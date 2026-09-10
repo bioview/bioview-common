@@ -11,6 +11,7 @@ import contextlib
 import math
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 
@@ -25,6 +26,13 @@ class DpicChannel:
     inject_tx: int
     measure_tx: int
     measure_rx: int
+
+    #: The radio this loop physically lives on. Loops on different radios are
+    #: independent -- separate Tx chains, separate Rx chains -- so they can be
+    #: balanced at the same time; loops sharing one radio cannot, because they
+    #: contend for the same channels. ``None`` means "unknown", which is
+    #: treated as sharing with every other unknown.
+    device: str | None = None
 
     #: Set the inject Tx's digital phase, in degrees.
     set_phase: Callable[[float], None] = None
@@ -203,7 +211,16 @@ class DpicBalancer:
     #: Called after every measurement with the live state of the loop, so the
     #: UI can show phase, amplitude and gain moving instead of a frozen panel
     #: and a progress-free wait. Never allowed to break the search.
+    #:
+    #: May be called from several threads at once when ``parallel_devices`` is
+    #: on, so an implementation has to be safe to call concurrently.
     on_progress: Callable[[dict], None] | None = None
+
+    #: Balance the loops of different radios at the same time rather than one
+    #: after another. Every loop then gets the *whole* time budget instead of
+    #: its share of it, and a group of N radios finishes in roughly the time
+    #: one of them takes. Loops that share a radio still run in series.
+    parallel_devices: bool = True
 
     # ------------------------------------------------------------- internals
 
@@ -486,7 +503,16 @@ class DpicBalancer:
             message=message,
         )
 
-    def balance(self, ch: DpicChannel) -> DpicBalanceResult:
+    def balance(
+        self, ch: DpicChannel, time_budget_s: float | None = None
+    ) -> DpicBalanceResult:
+        """Balance one loop. ``time_budget_s`` overrides the balancer's own.
+
+        Passed in rather than assigned to ``self``: several loops share one
+        balancer when they run concurrently, and a field mutated per loop is
+        the whole search's budget seen by every other thread.
+        """
+        budget = self.time_budget_s if time_budget_s is None else float(time_budget_s)
         t_start = time.monotonic()
         counter = {"n": 0}
 
@@ -495,12 +521,10 @@ class DpicBalancer:
         # prerequisite of the search, not part of it, and on a slow measurement
         # path it could otherwise eat the whole budget and leave every sweep to
         # break on its first point.
-        gain_state = self._measurement_state(
-            ch, time.monotonic() + self.time_budget_s, counter
-        )
+        gain_state = self._measurement_state(ch, time.monotonic() + budget, counter)
         self._tune_gain(ch, gain_state, "before")
 
-        deadline = time.monotonic() + self.time_budget_s
+        deadline = time.monotonic() + budget
         state = self._measurement_state(ch, deadline, counter)
         stages = state["stages"]
 
@@ -536,10 +560,7 @@ class DpicBalancer:
                 elapsed,
                 start_metric,
                 stages,
-                (
-                    f"the {self.time_budget_s:.0f}s budget expired before any "
-                    "sweep point was measured"
-                )
+                (f"the {budget:.0f}s budget expired before any sweep point was measured")
                 if visited == 0
                 else "no sweep point returned a usable metric",
             )
@@ -548,9 +569,7 @@ class DpicBalancer:
         # point; the VI re-runs the same gain stage here. Done after min_metric
         # is fixed, so the null depth is measured at a single gain setting, and
         # on a fresh deadline for the same reason as the first call.
-        after_state = self._measurement_state(
-            ch, time.monotonic() + self.time_budget_s, counter
-        )
+        after_state = self._measurement_state(ch, time.monotonic() + budget, counter)
         after_state["last"].update({"phase": best["phase"], "amp": best["amp"]})
         self._tune_gain(ch, after_state, "after")
 
@@ -572,22 +591,64 @@ class DpicBalancer:
             stages=stages,
         )
 
+    @staticmethod
+    def _lanes(channels: Sequence[DpicChannel]) -> list[list[DpicChannel]]:
+        """Group loops into per-radio lanes, keeping each lane's input order.
+
+        Two loops on the same radio contend for its Tx and Rx chains, so they
+        stay in one lane and run in series. Loops with no radio named share a
+        lane for the same reason: nothing says they are independent.
+        """
+        lanes: dict[object, list[DpicChannel]] = {}
+        for ch in channels:
+            lanes.setdefault(ch.device, []).append(ch)
+        return list(lanes.values())
+
+    def _balance_lane(self, lane: Sequence[DpicChannel], budget: float) -> list:
+        """Balance one radio's loops in series, returning (channel, result) pairs."""
+        results = []
+        for ch in lane:
+            # Checked between loops as well as inside each sweep: an abort
+            # during loop 1 must not start loop 2.
+            if self.should_abort is not None and self.should_abort():
+                break
+            results.append((ch, self.balance(ch, budget)))
+        return results
+
     def balance_all(self, channels: Sequence[DpicChannel]) -> list[DpicBalanceResult]:
-        """Balance each loop in turn, splitting the time budget between them."""
+        """Balance every loop, one lane per radio, lanes running together.
+
+        With ``parallel_devices`` on, the radios in a group are balanced at the
+        same time: their loops are physically independent, so serialising them
+        only made a four-radio rig wait four times as long. Each lane divides
+        the time budget between its *own* loops, not between every loop in the
+        group -- a lane that holds one loop gets the whole budget.
+
+        Results come back in the order the channels were given, whichever lane
+        finished first.
+        """
         channels = list(channels)
         if not channels:
             return []
-        per_pair = self.time_budget_s / len(channels)
-        saved = self.time_budget_s
-        try:
-            self.time_budget_s = per_pair
-            results = []
-            for ch in channels:
-                # Checked between pairs as well as inside each sweep: an abort
-                # during pair 1 must not start pair 2.
-                if self.should_abort is not None and self.should_abort():
-                    break
-                results.append(self.balance(ch))
-            return results
-        finally:
-            self.time_budget_s = saved
+
+        lanes = self._lanes(channels) if self.parallel_devices else [channels]
+
+        if len(lanes) == 1:
+            pairs = self._balance_lane(lanes[0], self.time_budget_s / len(lanes[0]))
+        else:
+            pairs = []
+            with ThreadPoolExecutor(
+                max_workers=len(lanes), thread_name_prefix="dpic-balance"
+            ) as pool:
+                futures = [
+                    pool.submit(self._balance_lane, lane, self.time_budget_s / len(lane))
+                    for lane in lanes
+                ]
+                for future in futures:
+                    pairs.extend(future.result())
+
+        # Back into the caller's order: a lane that finished first must not
+        # reorder the results the report and the saved config are keyed by.
+        order = {id(ch): i for i, ch in enumerate(channels)}
+        pairs.sort(key=lambda pair: order.get(id(pair[0]), 0))
+        return [result for _ch, result in pairs]

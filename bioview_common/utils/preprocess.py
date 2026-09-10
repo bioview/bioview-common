@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import signal
-from typing import List
+
 
 def apply_filter(data, filter, zi=None):
     if zi is None:
@@ -12,8 +12,9 @@ def apply_filter(data, filter, zi=None):
     filtered_data, zf = signal.sosfilt(filter, data, zi=zi)
     return filtered_data, zf
 
+
 def get_filter(
-    bounds: List[float],
+    bounds: list[float],
     samp_rate: int,
     ftype: str = "ellip",
     btype: str = "band",

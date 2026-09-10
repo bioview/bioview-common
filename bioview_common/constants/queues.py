@@ -11,6 +11,10 @@ RX_QUEUE_DEPTH = 8
 #: writes are bursty and dropping here means losing recorded data.
 SAVE_QUEUE_DEPTH = 64
 
+#: Records from every device waiting on the session recorder. Deeper than one
+#: device's save queue because all devices share it.
+SAVE_OUTPUT_QUEUE_DEPTH = 256
+
 # Shallow on purpose: stale display data is evicted, not queued behind.
 DISPLAY_QUEUE_DEPTH = 16
 

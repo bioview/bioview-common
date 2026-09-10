@@ -11,16 +11,6 @@ class DeviceStatus(Enum):
     DISCONNECTED = "Disconnected"
 
 
-class ServerStatus(IntEnum):
-    SHUTDOWN_SERVER = -2  # Signal server to shutdown
-    RESET_SERVER = -1  # Signal server reset
-    CLIENT_DISCONNECTED = 0
-    CLIENT_CONNECTED = 1
-    DEVICES_DISCONNECTED = 2
-    DEVICES_CONNECTED = 3
-    STREAMING = 4
-
-
 class ClientStatus(IntEnum):
     """Ordered by connectivity, so connection checks can compare levels."""
 

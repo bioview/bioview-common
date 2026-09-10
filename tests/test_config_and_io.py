@@ -1,11 +1,11 @@
 """Tests for configuration parsing and filesystem helpers in bioview-common."""
+
 import json
 from pathlib import Path
 
 from bioview_common import (
-    Configuration,
-    DummyConfiguration,
     SUPPORTED_CONFIGURATION_TYPES,
+    Configuration,
     USRPConfiguration,
     get_unique_path,
     parse_configuration_file,
@@ -16,11 +16,15 @@ from bioview_common.datatypes.configuration.usrp_channel_map import (
     resolve_channel_map,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DPIC_2X2_CFG = REPO_ROOT / "usrp_dpic_2x2_mimo_cfg.json"
-DUMMY_DPIC_2X2_CFG = REPO_ROOT / "dummy_dpic_2x2_mimo_cfg.json"
-SAMPLE_USRP_CFG = REPO_ROOT / "sample_usrp_cfg.json"
-SAMPLE_USRP_BIOPAC_CFG = REPO_ROOT / "sample_usrp_biopac_cfg.json"
+
+# Sample configurations live beside the tests rather than in the working tree
+# above the repo: each BioView package is checked out on its own in CI, so a
+# path outside the repo silently resolved to nothing and parse_configuration_file
+# returned {} instead of failing.
+DATA_DIR = Path(__file__).resolve().parent / "data"
+DPIC_2X2_CFG = DATA_DIR / "usrp_dpic_2x2_mimo_cfg.json"
+SAMPLE_USRP_CFG = DATA_DIR / "sample_usrp_cfg.json"
+SAMPLE_USRP_BIOPAC_CFG = DATA_DIR / "sample_usrp_biopac_cfg.json"
 
 
 def _write_json(tmp_path, data):
@@ -29,7 +33,7 @@ def _write_json(tmp_path, data):
     return str(p)
 
 
-def test_parse_configuration_file_dummy(tmp_path):
+def test_parse_configuration_file_reads_every_block(tmp_path):
     cfg_path = _write_json(
         tmp_path,
         {
@@ -37,27 +41,27 @@ def test_parse_configuration_file_dummy(tmp_path):
                 "type": "EXPERIMENT",
                 "enable_save": False,
                 "save_dir": "./recordings",
-                "file_name": "dummy_session.bvr",
+                "file_name": "session.bvr",
             },
-            "DummyDevice": {
-                "type": "DUMMY",
-                "samp_rate": 500,
-                "num_channels": 4,
+            "BIOPAC": {
+                "type": "BIOPAC",
+                "samp_rate": 1000,
+                "channels": [1, 1, 0, 0],
             },
         },
     )
 
     parsed = parse_configuration_file(cfg_path)
-    assert set(parsed.keys()) == {"Experiment", "DummyDevice"}
+    assert set(parsed.keys()) == {"Experiment", "BIOPAC"}
     assert parsed["Experiment"].get_type() == SUPPORTED_CONFIGURATION_TYPES.EXPERIMENT
-    assert parsed["DummyDevice"].get_type() == SUPPORTED_CONFIGURATION_TYPES.DUMMY
+    assert parsed["BIOPAC"].get_type() == SUPPORTED_CONFIGURATION_TYPES.BIOPAC
 
 
 def test_parse_configuration_file_drops_unknown_types(tmp_path):
     cfg_path = _write_json(
         tmp_path,
         {
-            "Good": {"type": "DUMMY", "samp_rate": 100, "num_channels": 1},
+            "Good": {"type": "BIOPAC", "samp_rate": 100},
             "Bad": {"type": "NOT_A_REAL_TYPE"},
         },
     )
@@ -92,16 +96,6 @@ def test_parse_configuration_file_usrp_dpic_2x2_mimo():
     assert dpic[0].measure_tx == 0
 
 
-def test_parse_configuration_file_dummy_dpic_2x2_mimo():
-    parsed = parse_configuration_file(str(DUMMY_DPIC_2X2_CFG))
-    assert "Dummy_DPIC_2x2" in parsed
-    dummy = parsed["Dummy_DPIC_2x2"]
-    assert isinstance(dummy, DummyConfiguration)
-    assert dummy.get_type() == SUPPORTED_CONFIGURATION_TYPES.DUMMY
-    assert dummy.get_param("hardware") is not None
-    assert dummy.get_param("channel_map") is not None
-
-
 def test_parse_configuration_file_sample_usrp_single_radio():
     parsed = parse_configuration_file(str(SAMPLE_USRP_CFG))
     assert "USRP" in parsed
@@ -110,7 +104,8 @@ def test_parse_configuration_file_sample_usrp_single_radio():
     assert usrp.get_type() == SUPPORTED_CONFIGURATION_TYPES.USRP
 
     hardware = build_hardware_dict(usrp, "USRP")
-    assert set(hardware) == {"MyB210_7"}
+    # The radio name comes from the sample config in tests/data/.
+    assert set(hardware) == {"MyB210_3"}
     sources, registry, dpic = resolve_channel_map(
         "USRP",
         usrp.get_param("channel_map"),
@@ -137,16 +132,15 @@ def test_parse_configuration_file_sample_usrp_biopac():
 def test_configuration_resolves_device_type_from_type_field():
     config = Configuration.from_dict(
         {
-            "DummyDevice": {
-                "type": "DUMMY",
+            "RF": {
+                "type": "USRP",
                 "samp_rate": 500,
-                "num_channels": 2,
             }
         }
     )
-    assert "DummyDevice" in config.devices
-    assert isinstance(config.devices["DummyDevice"], DummyConfiguration)
-    assert config.devices["DummyDevice"].get_param("device_type") == "dummy"
+    assert "RF" in config.devices
+    assert isinstance(config.devices["RF"], USRPConfiguration)
+    assert config.devices["RF"].get_param("device_type") == "usrp"
 
 
 def test_configuration_roundtrip(tmp_path):
@@ -154,14 +148,14 @@ def test_configuration_roundtrip(tmp_path):
         tmp_path,
         {
             "Experiment": {"type": "EXPERIMENT", "file_name": "x.bvr"},
-            "DummyDevice": {"type": "DUMMY", "samp_rate": 250, "num_channels": 2},
+            "RF": {"type": "USRP", "samp_rate": 250},
         },
     )
     parsed = parse_configuration_file(cfg_path)
     config = Configuration.from_dict({k: v.to_dict() for k, v in parsed.items()})
-    assert "DummyDevice" in config.devices
+    assert "RF" in config.devices
     # A round-trip through dict form should preserve the device.
-    assert "DummyDevice" in config.to_dict()
+    assert "RF" in config.to_dict()
 
 
 def test_get_unique_path_deduplicates(tmp_path):

@@ -2,6 +2,7 @@
 authentication handshake, and numpy data-chunk framing used between the BioView
 client and server. These run entirely in-process over a socketpair (no server or
 hardware required)."""
+
 import socket
 import struct
 import threading
@@ -18,8 +19,8 @@ from bioview_common import (
     parse_and_validate_response,
     recv_message,
     send_command,
-    send_response,
     send_datachunk,
+    send_response,
     validate_token,
 )
 
@@ -115,14 +116,15 @@ def test_datachunk_framing_roundtrip(sockpair):
     end using the same [total][header_len][header][raw] framing the client uses."""
     client, server = sockpair
     data = np.arange(12, dtype=np.float32).reshape(3, 4)
-    sources = [{"group_id": "DummyDevice", "channel": i} for i in range(3)]
+    sources = [{"group_id": "RF", "channel": i} for i in range(3)]
 
     send_datachunk(client, data, meta={"sources": sources})
 
     # Read [total_len (4)][header_len (4)]
     prefix = _recv_exactly(server, 8)
     total_len, header_len = struct.unpack("!II", prefix)
-    body = _recv_exactly(server, total_len - 4)  # total_len counts header_len(4)+header+raw
+    # total_len counts header_len(4) + header + raw
+    body = _recv_exactly(server, total_len - 4)
     import json
 
     header = json.loads(body[:header_len].decode("utf-8"))

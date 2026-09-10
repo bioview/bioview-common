@@ -6,7 +6,6 @@ from enum import Enum
 class Command(Enum):
     # Server specific controls
     AUTHENTICATE_CLIENT = "authenticate_client"
-    PING_SERVER = "ping_server"  # Client - DONE, Server - Needs info TLC
     DISCOVER_SERVERS = "discover_servers"  # PARTIAL - Needs server info TLC
     CONNECT_SERVER = "connect_server"  # Client - DONE, Server - Needs test
     DISCONNECT_SERVER = "disconnect_server"  # Client - DONE
@@ -30,6 +29,9 @@ class Command(Enum):
         "update_running_parameter"  # Only one parameter update at a time
     )
     RUN_DPIC_BALANCE = "run_dpic_balance"
+    # Annotate the running recording ("Mark Event"). The recording lives on the
+    # server, so the note has to travel there to reach the file's trailer.
+    MARK_EVENT = "mark_event"
 
 
 # Internal IPC commands: sent from the server's main process to a device

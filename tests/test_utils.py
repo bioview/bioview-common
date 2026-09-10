@@ -1,7 +1,18 @@
 import ipaddress
 from importlib.metadata import version
 
-from bioview_common.utils import get_app_info, get_ip, is_local_request
+import numpy as np
+
+from bioview_common.utils import (
+    apply_filter,
+    emit_signal,
+    get_app_info,
+    get_cache_file,
+    get_filter,
+    get_ip,
+    is_local_request,
+    suppress_stdout,
+)
 
 
 def test_ip():
@@ -36,3 +47,34 @@ def test_app_info():
     assert app_info["version"] == version(
         "bioview_common"
     ), f"Invalid application version {app_info['version']}"
+
+
+def test_suppress_stdout_and_emit_signal():
+    with suppress_stdout():
+        print("this should be suppressed")
+
+    # emit_signal should silently ignore None
+    emit_signal(None)
+
+    # emit_signal should call the provided callable
+    called = {"v": False}
+
+    def cb(x):
+        called["v"] = x
+
+    emit_signal(cb, True)
+    assert called["v"] is True
+
+
+def test_get_cache_file_is_created_somewhere_writable(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows equivalent
+
+    assert get_cache_file("testfile.txt").exists()
+
+
+def test_filtering_roundtrip():
+    filt = get_filter([1, 100], 1000)
+    data = np.random.randn(1000)
+    filtered, _zf = apply_filter(data, filt)
+    assert filtered.shape == data.shape

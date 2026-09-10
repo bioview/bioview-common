@@ -1,5 +1,25 @@
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
+
+
+def merged_with_defaults(defaults: dict[str, Any], overrides: dict[str, Any]):
+    """``overrides`` applied over ``defaults``, merging one level of nesting.
+
+    A config file that sets only ``calibration.enabled`` used to replace the
+    whole default calibration block, so every key it did not mention vanished
+    and the value the panel showed came from a fallback buried in the backend
+    rather than from the configuration. Nested blocks (``calibration``,
+    ``dpic_balance``, ``fmcw``, ...) are flat, so one level is all that is
+    needed and a deeper walk would only make ``channel_map`` harder to reason
+    about.
+    """
+    merged: dict[str, Any] = {}
+    for key, value in (overrides or {}).items():
+        base = defaults.get(key)
+        if isinstance(base, dict) and isinstance(value, dict):
+            value = {**base, **value}
+        merged[key] = value
+    return merged
 
 
 class BaseConfig:
@@ -12,7 +32,7 @@ class BaseConfig:
             setattr(self, param, value)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]):
+    def from_dict(cls, config_dict: dict[str, Any]):
         return cls(config_dict)
 
     def get_param(self, param, default_value=None):
@@ -41,12 +61,31 @@ class BaseConfig:
         return result
 
 
-def _resolve_device_type(value: Dict[str, Any]) -> Optional[str]:
-    """Map wire-format ``type`` / ``cfg_type`` fields to backend ``device_type``."""
-    from ..devices import DeviceType
+#: ``device_type`` -> (wire ``type`` name, configuration class). Populated by
+#: ``register_device_configuration`` as each shipped configuration module is
+#: imported, so adding a device means adding one registration rather than
+#: editing a mapping here, a branch in ``load_from_dict`` and a branch in
+#: ``get_configuration_callback``.
+_DEVICE_CONFIGURATIONS: dict[str, tuple[str, type]] = {}
 
+
+def register_device_configuration(device_type: str, cfg_type: str, config_cls: type):
+    """Teach the parser about one device type and the class that reads it."""
+    _DEVICE_CONFIGURATIONS[str(device_type)] = (str(cfg_type), config_cls)
+
+
+def configuration_for_cfg_type(cfg_type: str):
+    """The configuration class for a wire-format ``type`` (e.g. ``"USRP"``)."""
+    for name, config_cls in _DEVICE_CONFIGURATIONS.values():
+        if name == cfg_type:
+            return config_cls
+    return None
+
+
+def _resolve_device_type(value: dict[str, Any]) -> str | None:
+    """Map wire-format ``type`` / ``cfg_type`` fields to backend ``device_type``."""
     device_type = value.get("device_type")
-    if device_type in {d.value for d in DeviceType}:
+    if device_type in _DEVICE_CONFIGURATIONS:
         return device_type
 
     cfg_type = value.get("type") or value.get("cfg_type")
@@ -56,54 +95,44 @@ def _resolve_device_type(value: Dict[str, Any]) -> Optional[str]:
     if isinstance(cfg_type, Enum):
         cfg_type = cfg_type.value
 
-    mapping = {
-        "USRP": DeviceType.USRP.value,
-        "BIOPAC": DeviceType.BIOPAC.value,
-        "DUMMY": DeviceType.DUMMY.value,
-        "usrp": DeviceType.USRP.value,
-        "biopac": DeviceType.BIOPAC.value,
-        "dummy": DeviceType.DUMMY.value,
-    }
-    key = str(cfg_type)
-    return mapping.get(key) or mapping.get(key.upper()) or mapping.get(key.lower())
+    # A config file may spell the type in either case ("USRP" or "usrp"), and
+    # older files carry the device_type value in the ``type`` field.
+    key = str(cfg_type).lower()
+    for device_type, (name, _) in _DEVICE_CONFIGURATIONS.items():
+        if key in {name.lower(), device_type.lower()}:
+            return device_type
+    return None
 
 
 class Configuration:
-    def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
+    def __init__(self, config_dict: dict[str, Any] | None = None):
         self.experiment = None
         self.devices = {}  # device_id -> BaseConfig subclass instance
 
         if config_dict:
             self.load_from_dict(config_dict)
 
-    def load_from_dict(self, config_dict: Dict[str, Any]):
-        from ..devices import DeviceType
-        from .biopac import BiopacConfiguration
-        from .dummy import DummyConfiguration
-        from .experiment import ExperimentConfiguration
-        from .usrp import USRPConfiguration
+    def load_from_dict(self, config_dict: dict[str, Any]):
+        # Deferred: the configuration package imports this module, and
+        # importing it is what fills _DEVICE_CONFIGURATIONS.
+        from . import ExperimentConfiguration
 
         for key, value in config_dict.items():
             if key.lower() == "experiment":
                 self.experiment = ExperimentConfiguration(value)
-            else:
-                device_type = _resolve_device_type(value)
-                if device_type is None:
-                    self.devices[key] = BaseConfig(value)
-                    continue
+                continue
 
-                payload = dict(value)
-                payload["device_type"] = device_type
-                if device_type == DeviceType.USRP.value:
-                    self.devices[key] = USRPConfiguration(payload)
-                elif device_type == DeviceType.BIOPAC.value:
-                    self.devices[key] = BiopacConfiguration(payload)
-                elif device_type == DeviceType.DUMMY.value:
-                    self.devices[key] = DummyConfiguration(payload)
-                else:
-                    self.devices[key] = BaseConfig(payload)
+            device_type = _resolve_device_type(value)
+            if device_type is None:
+                self.devices[key] = BaseConfig(value)
+                continue
 
-    def to_dict(self) -> Dict[str, Any]:
+            payload = dict(value)
+            payload["device_type"] = device_type
+            _, config_cls = _DEVICE_CONFIGURATIONS[device_type]
+            self.devices[key] = config_cls(payload)
+
+    def to_dict(self) -> dict[str, Any]:
         result = {}
         if self.experiment:
             result["Experiment"] = self.experiment.to_dict()
@@ -114,7 +143,7 @@ class Configuration:
         return result
 
     @classmethod
-    def from_dict(cls, data_dict: Dict[str, Any]):
+    def from_dict(cls, data_dict: dict[str, Any]):
         return cls(data_dict)
 
     def update_device_param(self, device_id: str, param: str, value: Any):
@@ -123,14 +152,13 @@ class Configuration:
         from .hardware_params import (
             GLOBAL_RX_PARAMS,
             GLOBAL_TX_PARAMS,
-            update_device_rx_param,
-            update_device_tx_param,
+            update_device_param,
         )
 
         cfg = self.devices[device_id]
         if param in GLOBAL_TX_PARAMS:
-            update_device_tx_param(cfg, param, value)
+            update_device_param(cfg, param, value, kind="tx")
         elif param in GLOBAL_RX_PARAMS:
-            update_device_rx_param(cfg, param, value)
+            update_device_param(cfg, param, value, kind="rx")
         else:
             cfg.set_param(param, value)

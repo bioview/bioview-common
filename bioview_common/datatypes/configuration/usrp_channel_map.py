@@ -7,6 +7,69 @@ from dataclasses import dataclass, field
 from bioview_common.datatypes.datasource import DataSource
 
 
+#: The two quantities the USRP pipeline derives from every Tx/Rx pair.
+#: ``amplitude`` is the normalized baseband magnitude; ``phase`` is the
+#: unwrapped baseband angle in radians with the static Tx phase removed. A
+#: group streams one row per pair per requested component.
+STREAM_COMPONENTS = ("amplitude", "phase")
+
+#: Appended to a pair's label to name its component. Amplitude keeps the bare
+#: ``TxNRxM`` label so single-component configs, recordings and saved display
+#: source lists read exactly as they did before components existed.
+COMPONENT_LABEL_SUFFIX = {"amplitude": "", "phase": "_Phase"}
+
+_COMPONENT_ALIASES = {
+    "amplitude": "amplitude",
+    "amp": "amplitude",
+    "magnitude": "amplitude",
+    "mag": "amplitude",
+    "abs": "amplitude",
+    "phase": "phase",
+    "angle": "phase",
+    "arg": "phase",
+}
+
+
+def normalize_components(components) -> list[str]:
+    """Canonicalize a configured component list, preserving its order.
+
+    Duplicates collapse; an empty or missing list means amplitude only, which
+    is what a group streamed before this option existed.
+    """
+    if components is None:
+        return ["amplitude"]
+    if isinstance(components, str):
+        components = [components]
+    resolved: list[str] = []
+    for entry in components:
+        key = str(entry).strip().lower()
+        canonical = _COMPONENT_ALIASES.get(key)
+        if canonical is None:
+            raise ValueError(
+                f"Unknown stream component {entry!r}; expected one of "
+                f"{', '.join(STREAM_COMPONENTS)}"
+            )
+        if canonical not in resolved:
+            resolved.append(canonical)
+    return resolved or ["amplitude"]
+
+
+def components_from_config(group_config: dict) -> list[str]:
+    """Components a USRP group streams, from its configuration dict.
+
+    ``components`` is the explicit form. ``display_imaginary`` is the older
+    boolean that swapped a group's single streamed row from amplitude to
+    phase; with no ``components`` key it still means exactly that, so old
+    configurations keep their behaviour.
+    """
+    explicit = (group_config or {}).get("components")
+    if explicit:
+        return normalize_components(explicit)
+    if (group_config or {}).get("display_imaginary"):
+        return ["phase"]
+    return ["amplitude"]
+
+
 @dataclass
 class GlobalChannelRegistry:
     """Flat global Tx/Rx indices across all hardware in a virtual USRP group."""
@@ -116,15 +179,22 @@ def resolve_channel_map(
     channel_map: dict | None,
     hardware: dict[str, dict],
     disp_freq: float | None = None,
+    components=None,
 ) -> tuple[set[DataSource], GlobalChannelRegistry, list[DpicPair]]:
     """Build DataSource set and DPIC pairs from hardware + channel_map config.
 
     ``disp_freq`` is the rate (Hz) at which the processing pipeline actually
     emits display samples for these sources. The client sizes its plot buffers
     from it, so it must be the post-decimation rate, not the Rx sample rate.
+
+    ``components`` names the per-pair quantities to stream -- see
+    ``STREAM_COMPONENTS``. Each pair yields one source per component, adjacent
+    in channel order, so a two-component group advertises twice the rows. The
+    default, amplitude only, is what a group streamed before.
     """
     src_kwargs = {} if disp_freq is None else {"disp_freq": float(disp_freq)}
     registry = build_global_registry(hardware)
+    components = normalize_components(components)
 
     if not channel_map:
         channel_map = {"layout": "full_nxn", "dpic": []}
@@ -138,6 +208,24 @@ def resolve_channel_map(
     data_sources: set[DataSource] = set()
     ch_ctr = 0
 
+    def add_pair(t_idx: int, r_idx: int, base_label: str):
+        """One source per requested component, kept adjacent by channel."""
+        nonlocal ch_ctr
+        for component in components:
+            source = DataSource(
+                group_id=group_id,
+                channel=ch_ctr,
+                label=base_label + COMPONENT_LABEL_SUFFIX[component],
+                **src_kwargs,
+            )
+            source.tx_idx = t_idx
+            source.rx_idx = r_idx
+            source.tx_label = tx_label_map.get(t_idx, t_idx + 1)
+            source.rx_label = rx_label_map.get(r_idx, r_idx + 1)
+            source.component = component
+            data_sources.add(source)
+            ch_ctr += 1
+
     if layout == "custom":
         for pair in channel_map.get("pairs", []):
             t_idx = pair["tx"]
@@ -145,28 +233,11 @@ def resolve_channel_map(
             label = (
                 pair.get("label") or f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
             )
-            source = DataSource(
-                group_id=group_id, channel=ch_ctr, label=label, **src_kwargs
-            )
-            source.tx_idx = t_idx
-            source.rx_idx = r_idx
-            source.tx_label = tx_label_map.get(t_idx, t_idx + 1)
-            source.rx_label = rx_label_map.get(r_idx, r_idx + 1)
-            data_sources.add(source)
-            ch_ctr += 1
+            add_pair(t_idx, r_idx, label)
     else:
         for r_idx in rx_global:
             for t_idx in tx_global:
-                label = f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}"
-                source = DataSource(
-                    group_id=group_id, channel=ch_ctr, label=label, **src_kwargs
-                )
-                source.tx_idx = t_idx
-                source.rx_idx = r_idx
-                source.tx_label = tx_label_map[t_idx]
-                source.rx_label = rx_label_map[r_idx]
-                data_sources.add(source)
-                ch_ctr += 1
+                add_pair(t_idx, r_idx, f"Tx{tx_label_map[t_idx]}Rx{rx_label_map[r_idx]}")
 
     dpic_pairs = [
         DpicPair(
@@ -195,6 +266,7 @@ def build_hardware_dict(device_cfg, group_id: str) -> dict[str, dict]:
         "device_name",
         "absolute_channel_nums",
         "signal_scheme",
+        "components",
         "calibration",
         "dpic_balance",
         "tx_phase",

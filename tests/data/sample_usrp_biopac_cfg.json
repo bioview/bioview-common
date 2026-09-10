@@ -1,0 +1,45 @@
+{
+    "Experiment": {
+        "type": "EXPERIMENT",
+        "panel_width": 0.25,
+        "enable_save": true,
+        "save_dir": "./recordings",
+        "file_name": "usrp_biopac_session.bvr",
+        "display_sources": ["Tx1Rx1", "BIOPAC Ch1"]
+    },
+    "USRP": {
+        "type": "USRP",
+        "panel_width": 0.5,
+        "signal_scheme": "cw",
+        "samp_rate": 1000000,
+        "carrier_freq": 1000000000,
+        "hardware": {
+            "MyB210_3": {
+                "tx_channels": [0, 1],
+                "rx_channels": [0, 1],
+                "if_freq": [100000, 110000],
+                "tx_gain": [40, 40],
+                "rx_gain": [40, 40],
+                "tx_amplitude": [1.0, 1.0],
+                "tx_phase": [0.0, 0.0],
+                "if_filter_bw": 5000
+            }
+        },
+        "channel_map": {
+            "layout": "full_nxn",
+            "dpic": []
+        }
+    },
+    "BIOPAC": {
+        "type": "BIOPAC",
+        "panel_width": 0.25,
+        "model": "MP36",
+        "samp_rate": 1000,
+        "channels": [1, 1, 0, 0],
+        "hardware": {
+            "BIOPAC_MP36": {
+                "channels": [1, 1, 0, 0]
+            }
+        }
+    }
+}

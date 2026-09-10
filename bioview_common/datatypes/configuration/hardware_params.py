@@ -56,12 +56,17 @@ def _coerce_list(value: Any, length: int, fill: float = 0.0) -> list:
     return out
 
 
-def get_global_tx_values(
+def get_global_values(
     hardware: dict[str, dict] | None,
     param: str,
     group_defaults: dict | None = None,
 ) -> list:
-    """Read a Tx parameter as a flat global list (matches backend channel order)."""
+    """Read a parameter as a flat global list (matches backend channel order).
+
+    Tx and Rx read identically -- the direction only matters when values are
+    written back, where the channel count comes from ``tx_channels`` or
+    ``rx_channels``.
+    """
     group_defaults = group_defaults or {}
     if not hardware:
         raw = group_defaults.get(param)
@@ -81,37 +86,18 @@ def get_global_tx_values(
     return values
 
 
-def get_global_rx_values(
-    hardware: dict[str, dict] | None,
-    param: str,
-    group_defaults: dict | None = None,
-) -> list:
-    group_defaults = group_defaults or {}
-    if not hardware:
-        raw = group_defaults.get(param)
-        if isinstance(raw, list | tuple):
-            return list(raw)
-        if raw is None:
-            return []
-        return [raw]
-
-    values: list = []
-    for _device_name, hw in hardware.items():
-        raw = hw.get(param, group_defaults.get(param))
-        if isinstance(raw, list | tuple):
-            values.extend(raw)
-        elif raw is not None:
-            values.append(raw)
-    return values
-
-
-def apply_global_tx_values_to_hardware(
+def apply_global_values_to_hardware(
     hardware: dict[str, dict],
     param: str,
     values: list,
     group_defaults: dict | None = None,
+    kind: str = "tx",
 ) -> list:
-    """Write a flat global Tx list into nested hardware entries.
+    """Write a flat global list back into nested hardware entries.
+
+    ``kind`` picks the channel list the slices are cut against: a group's Tx
+    and Rx channel counts differ per radio, so a Tx write must not be sliced
+    with Rx widths.
 
     Returns the list actually applied.
     """
@@ -120,50 +106,35 @@ def apply_global_tx_values_to_hardware(
     default_fill = (
         default_raw[-1] if isinstance(default_raw, list | tuple) and default_raw else 0.0
     )
+    channel_key = f"{kind}_channels"
 
     offset = 0
     for _device_name, hw in hardware.items():
-        n_tx = len(hw.get("tx_channels", [0]))
-        slice_vals = _coerce_list(values[offset : offset + n_tx], n_tx, default_fill)
+        count = len(hw.get(channel_key, [0]))
+        slice_vals = _coerce_list(values[offset : offset + count], count, default_fill)
         hw[param] = slice_vals
-        offset += n_tx
+        offset += count
     return list(values)
 
 
-def apply_global_rx_values_to_hardware(
-    hardware: dict[str, dict],
-    param: str,
-    values: list,
-    group_defaults: dict | None = None,
-) -> list:
-    group_defaults = group_defaults or {}
-    default_raw = group_defaults.get(param)
-    default_fill = (
-        default_raw[-1] if isinstance(default_raw, list | tuple) and default_raw else 0.0
-    )
-
-    offset = 0
-    for _device_name, hw in hardware.items():
-        n_rx = len(hw.get("rx_channels", [0]))
-        slice_vals = _coerce_list(values[offset : offset + n_rx], n_rx, default_fill)
-        hw[param] = slice_vals
-        offset += n_rx
-    return list(values)
-
-
-def update_device_tx_param(
+def update_device_param(
     device_cfg,
     param: str,
     value: Any,
     idx: int | None = None,
+    kind: str = "tx",
 ) -> list:
-    """Update device config for a Tx param; returns the flat global value list."""
+    """Update a device config's Tx or Rx param; returns the flat global list.
+
+    A group with no ``hardware`` block keeps the value at group level; one with
+    hardware has it split back across the radios by channel count.
+    """
     hardware = device_cfg.get_param("hardware")
     defaults = device_cfg.to_dict()
 
     if not hardware:
         if idx is not None:
-            current = list(get_global_tx_values(None, param, defaults))
+            current = list(get_global_values(None, param, defaults))
             while len(current) <= idx:
                 current.append(0.0)
             current[idx] = value
@@ -173,7 +144,7 @@ def update_device_tx_param(
         return list(value) if isinstance(value, list | tuple) else [value]
 
     hw = deepcopy(hardware)
-    current = get_global_tx_values(hw, param, defaults)
+    current = get_global_values(hw, param, defaults)
     if idx is not None:
         while len(current) <= idx:
             current.append(current[-1] if current else 0.0)
@@ -181,53 +152,17 @@ def update_device_tx_param(
     else:
         current = list(value) if isinstance(value, list | tuple) else [value]
 
-    apply_global_tx_values_to_hardware(hw, param, current, defaults)
+    apply_global_values_to_hardware(hw, param, current, defaults, kind=kind)
     device_cfg.set_param("hardware", hw)
-    return get_global_tx_values(hw, param, defaults)
-
-
-def update_device_rx_param(
-    device_cfg,
-    param: str,
-    value: Any,
-    idx: int | None = None,
-) -> list:
-    hardware = device_cfg.get_param("hardware")
-    defaults = device_cfg.to_dict()
-
-    if not hardware:
-        if idx is not None:
-            current = list(get_global_rx_values(None, param, defaults))
-            while len(current) <= idx:
-                current.append(0.0)
-            current[idx] = value
-            device_cfg.set_param(param, current)
-            return current
-        device_cfg.set_param(param, value)
-        return list(value) if isinstance(value, list | tuple) else [value]
-
-    hw = deepcopy(hardware)
-    current = get_global_rx_values(hw, param, defaults)
-    if idx is not None:
-        while len(current) <= idx:
-            current.append(current[-1] if current else 0.0)
-        current[idx] = value
-    else:
-        current = list(value) if isinstance(value, list | tuple) else [value]
-
-    apply_global_rx_values_to_hardware(hw, param, current, defaults)
-    device_cfg.set_param("hardware", hw)
-    return get_global_rx_values(hw, param, defaults)
+    return get_global_values(hw, param, defaults)
 
 
 def resolve_param_values(device_cfg, param: str) -> list:
     """Return flat values for UI display (hardware-aware)."""
     defaults = device_cfg.to_dict()
     hardware = device_cfg.get_param("hardware")
-    if param in GLOBAL_TX_PARAMS:
-        return get_global_tx_values(hardware, param, defaults)
-    if param in GLOBAL_RX_PARAMS:
-        return get_global_rx_values(hardware, param, defaults)
+    if param in GLOBAL_TX_PARAMS or param in GLOBAL_RX_PARAMS:
+        return get_global_values(hardware, param, defaults)
     raw = device_cfg.get_param(param)
     if isinstance(raw, list | tuple):
         return list(raw)
@@ -257,7 +192,7 @@ def apply_global_tx_param_to_schemes(
     """Push a flat global Tx parameter list into hardware dict and live schemes."""
     flat = list(values) if isinstance(values, list | tuple) else [values]
     if hardware:
-        apply_global_tx_values_to_hardware(hardware, param, flat, group_config)
+        apply_global_values_to_hardware(hardware, param, flat, group_config, kind="tx")
         group_config["hardware"] = hardware
 
     scheme_attr = {

@@ -1,17 +1,17 @@
 """Tests for hardware-aware parameter flattening."""
 
-from bioview_common.datatypes.configuration.dummy import DummyConfiguration
 from bioview_common.datatypes.configuration.hardware_params import (
-    get_global_tx_values,
+    get_global_values,
     resolve_param_values,
-    update_device_tx_param,
+    update_device_param,
 )
+from bioview_common.datatypes.configuration.usrp import USRPConfiguration
 
 
-def _dpic_dummy_cfg():
-    return DummyConfiguration.from_dict(
+def _dpic_cfg():
+    return USRPConfiguration.from_dict(
         {
-            "type": "DUMMY",
+            "type": "USRP",
             "samp_rate": 1e6,
             "hardware": {
                 "MyB210_4": {
@@ -33,9 +33,9 @@ def _dpic_dummy_cfg():
     )
 
 
-def test_get_global_tx_values_from_hardware():
-    cfg = _dpic_dummy_cfg()
-    assert get_global_tx_values(cfg.get_param("hardware"), "if_freq", cfg.to_dict()) == [
+def test_get_global_values_from_hardware():
+    cfg = _dpic_cfg()
+    assert get_global_values(cfg.get_param("hardware"), "if_freq", cfg.to_dict()) == [
         100e3,
         110e3,
         120e3,
@@ -43,9 +43,9 @@ def test_get_global_tx_values_from_hardware():
     assert resolve_param_values(cfg, "tx_amplitude") == [0.8, 0.9, 0.5]
 
 
-def test_update_device_tx_param_writes_nested_hardware():
-    cfg = _dpic_dummy_cfg()
-    updated = update_device_tx_param(cfg, "tx_amplitude", 0.25, idx=2)
+def test_update_device_param_writes_nested_hardware():
+    cfg = _dpic_cfg()
+    updated = update_device_param(cfg, "tx_amplitude", 0.25, idx=2, kind="tx")
     assert updated == [0.8, 0.9, 0.25]
     hw = cfg.get_param("hardware")
     assert hw["MyB210_7"]["tx_amplitude"] == [0.25]

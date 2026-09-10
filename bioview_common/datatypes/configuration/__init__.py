@@ -1,30 +1,27 @@
 import json
-from typing import Dict
 
 from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 from .biopac import BiopacConfiguration
-from .config import Configuration
-from .dummy import DummyConfiguration
+from .config import (
+    Configuration,
+    configuration_for_cfg_type,
+    register_device_configuration,
+)
 from .experiment import ExperimentConfiguration
+from .microphone import MicrophoneConfiguration
 from .usrp import USRPConfiguration
 
 
-def get_configuration_callback(cfg_type: str) -> Configuration:
-    if cfg_type == SUPPORTED_CONFIGURATION_TYPES.USRP.value:
-        return USRPConfiguration
-
-    if cfg_type == SUPPORTED_CONFIGURATION_TYPES.BIOPAC.value:
-        return BiopacConfiguration
-
-    if cfg_type == SUPPORTED_CONFIGURATION_TYPES.DUMMY.value:
-        return DummyConfiguration
-
+def get_configuration_callback(cfg_type: str):
+    """The class that reads one wire-format ``type``, or ``None``."""
     if cfg_type == SUPPORTED_CONFIGURATION_TYPES.EXPERIMENT.value:
         return ExperimentConfiguration
 
+    return configuration_for_cfg_type(cfg_type)
 
-def parse_configuration_file(file_path: str) -> Dict:
+
+def parse_configuration_file(file_path: str) -> dict:
     data = {}
 
     try:
@@ -38,11 +35,11 @@ def parse_configuration_file(file_path: str) -> Dict:
     # For valid configurations, convert them into the appropriate object and return
     parsed = {}
     for k, v in data.items():
-        cfg_type = v.get("type", None)
-        if cfg_type not in SUPPORTED_CONFIGURATION_TYPES.__members__:
+        config_cls = get_configuration_callback(v.get("type", None))
+        if config_cls is None:
             continue  # Drop all unsupported types
 
-        parsed[k] = get_configuration_callback(cfg_type).from_dict(v)
+        parsed[k] = config_cls.from_dict(v)
 
     return parsed
 
@@ -50,9 +47,10 @@ def parse_configuration_file(file_path: str) -> Dict:
 __all__ = [
     "Configuration",
     "parse_configuration_file",
+    "register_device_configuration",
     "SUPPORTED_CONFIGURATION_TYPES",
     "ExperimentConfiguration",
     "USRPConfiguration",
     "BiopacConfiguration",
-    "DummyConfiguration",
+    "MicrophoneConfiguration",
 ]

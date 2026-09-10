@@ -20,6 +20,7 @@ from .queues import (
     DISPLAY_QUEUE_DEPTH,
     QUEUE_PUT_TIMEOUT_S,
     RX_QUEUE_DEPTH,
+    SAVE_OUTPUT_QUEUE_DEPTH,
     SAVE_QUEUE_DEPTH,
 )
 from .version import APP_VERSION
@@ -46,5 +47,6 @@ __all__ = [
     "SAVE_QUEUE_DEPTH",
     "DISPLAY_QUEUE_DEPTH",
     "DATA_OUTPUT_QUEUE_DEPTH",
+    "SAVE_OUTPUT_QUEUE_DEPTH",
     "QUEUE_PUT_TIMEOUT_S",
 ]
