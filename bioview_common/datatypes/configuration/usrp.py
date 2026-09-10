@@ -1,7 +1,7 @@
 from bioview_common.constants import SUPPORTED_CONFIGURATION_TYPES
 
 from ..devices import DeviceType
-from .config import BaseConfig
+from .config import BaseConfig, merged_with_defaults, register_device_configuration
 
 
 """USRP device configuration.
@@ -34,6 +34,7 @@ BASE_USRP_CONFIG = {
         "enabled": False,
         "shape": "triangle",
         "num_pulses": 5,
+        "pulse_duration_s": 0.1,
         "packet_spacing_s": 1.0,
         "envelope_freq_hz": 10.0,
         "modulation_depth": 0.2,
@@ -84,8 +85,11 @@ class USRPConfiguration(BaseConfig):
         # Initialize using default values
         super().__init__(BASE_USRP_CONFIG)
 
-        # Update with provided values
-        for key, value in config_dict.items():
+        # Update with provided values. Merged, not replaced: a file naming
+        # only `calibration.enabled` must not drop the rest of the block.
+        for key, value in merged_with_defaults(
+            BASE_USRP_CONFIG, config_dict or {}
+        ).items():
             setattr(self, key, value)
 
         # Set device type. TODO: Remove
@@ -94,3 +98,10 @@ class USRPConfiguration(BaseConfig):
         # Default absolute channel map for a single device with paired Tx/Rx;
         # multi-device MIMO must override it.
         self.absolute_channel_nums = self.tx_channels
+
+
+register_device_configuration(
+    DeviceType.USRP.value,
+    SUPPORTED_CONFIGURATION_TYPES.USRP.value,
+    USRPConfiguration,
+)
