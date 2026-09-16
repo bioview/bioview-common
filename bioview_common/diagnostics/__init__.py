@@ -1,14 +1,4 @@
-"""Recognised failures and the plain-language explanation for each.
-
-Both GUIs render errors through :func:`explain`, so a new failure is taught to
-BioView by adding an entry to ``known_issues.json``.
-
-:func:`server_diagnostics` is the single place a *server-level* fault -- a
-backend that would not load, a UHD whose bindings do not match its driver --
-is turned into something a window can show. The Monitor and the Configurator
-both call it on the same payload and render the same result, so neither has to
-know what a backend is or how to word its failure.
-"""
+"""Recognised failures and the plain-language explanation for each."""
 
 import json
 import re
@@ -69,10 +59,7 @@ def load_known_issues(force_reload: bool = False) -> list[KnownIssue]:
 
 
 def explain(text) -> KnownIssue | None:
-    """The catalogue entry describing this error, if one recognises it.
-
-    Checked in file order, so specific entries must come first.
-    """
+    """The catalogue entry describing this error, if one recognises it."""
     if not text:
         return None
     text = str(text)
@@ -100,8 +87,6 @@ def describe_failure(text, include_original: bool = True) -> str:
     return f"{lead}. {advice}" if advice else lead
 
 
-#: Levels a diagnostic can carry, in ascending order of how much attention it
-#: deserves. "error" is what a window puts in a modal.
 DIAGNOSTIC_LEVELS = ("info", "warning", "error")
 
 
@@ -110,16 +95,7 @@ def _backend_title(device_type: str) -> str:
 
 
 def server_diagnostics(server_info) -> list[dict]:
-    """Server-level faults worth showing, newest server payload in, list out.
-
-    Each entry is ``{"id", "device_type", "level", "title", "message",
-    "detail"}``. ``id`` is stable for a given fault on a given server, so a
-    window can show each one once rather than on every reconnect.
-
-    A backend that did not load is an error rather than a warning: the
-    hardware it drives cannot be used at all, and the operator has no other
-    way to find that out until a device fails to initialize much later.
-    """
+    """Server-level faults worth showing, newest server payload in, list out."""
     info = server_info or {}
     backends = info.get("backends") or {}
     if not isinstance(backends, dict):

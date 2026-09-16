@@ -1,9 +1,4 @@
-"""Direct-path interference cancellation.
-
-A coarse-to-fine grid search over the inject Tx's digital phase and amplitude,
-ported from the ``Pig_2Ch_NCS_BIOPAC_BalanceSignal`` LabVIEW VI. The four
-sweeps and their step sizes are the VI's; see bioview-docs/reference/dpic.md.
-"""
+"""Direct-path interference cancellation."""
 
 from __future__ import annotations
 
@@ -27,42 +22,22 @@ class DpicChannel:
     measure_tx: int
     measure_rx: int
 
-    #: The radio this loop physically lives on. Loops on different radios are
-    #: independent -- separate Tx chains, separate Rx chains -- so they can be
-    #: balanced at the same time; loops sharing one radio cannot, because they
-    #: contend for the same channels. ``None`` means "unknown", which is
-    #: treated as sharing with every other unknown.
     device: str | None = None
 
-    #: Set the inject Tx's digital phase, in degrees.
     set_phase: Callable[[float], None] = None
-    #: Set the inject Tx's digital amplitude, 0..1.
     set_amplitude: Callable[[float], None] = None
-    #: Mean residual magnitude on ``measure_rx``. None if not yet measurable.
     read_metric: Callable[[], float | None] = None
-    #: Dwell for the given number of seconds after a change. The VI's per-point
-    #: wait, which is also what makes a sweep legible on a live plot.
     wait_settle: Callable[[float], None] = _no_wait
 
-    #: Analog Tx gain (dB) on the inject Tx, reported with the result.
     get_gain: Callable[[], float] | None = None
 
-    # --- the VI's "Tune Rx1 Gain to DC value of ~0.5" stage ---
-    #
-    # The VI steps the *measure* Tx's analog gain and the Rx gain together, by
-    # 1 dB per iteration, until the measured level sits between its two
-    # thresholds. Both accessors must be present for the stage to run; a
-    # backend with no analog gain control (the simulator) leaves them None and
-    # the stage is skipped.
     get_rx_gain: Callable[[], float] | None = None
     set_rx_gain: Callable[[float], None] | None = None
     get_tx_gain: Callable[[], float] | None = None
     set_tx_gain: Callable[[float], None] | None = None
-    #: (min, max) dB, so the ladder cannot walk off the end of the range.
     rx_gain_range: tuple[float, float] = (0.0, 76.0)
     tx_gain_range: tuple[float, float] = (0.0, 90.0)
 
-    #: Starting point, so a failed search can restore it.
     start_phase_deg: float = 0.0
     start_amplitude: float = 0.0
 
@@ -80,11 +55,8 @@ class DpicStage:
     """What one sweep actually did, so a short balance is never ambiguous."""
 
     name: str
-    #: Points the sweep intended to visit.
     planned: int
-    #: Points it actually applied before the budget ran out.
     visited: int = 0
-    #: Points that returned a usable metric.
     measured: int = 0
     best_value: float = float("nan")
     best_metric: float = float("nan")
@@ -115,22 +87,15 @@ class DpicBalanceResult:
     best_amplitude: float
     min_metric: float
     measure_rx: int = -1
-    #: Analog gain (dB) on the inject Tx.
     inject_gain_db: float = float("nan")
-    #: Where the VI's gain stage left the measure Tx / Rx, in dB.
     measure_tx_gain_db: float = float("nan")
     measure_rx_gain_db: float = float("nan")
-    #: "grid" or "none".
     method: str = "none"
-    # False when no usable metric was read; settings are then restored.
     converged: bool = True
     num_measurements: int = 0
     elapsed_s: float = 0.0
-    #: Metric before the search started, for a null-depth figure of merit.
     start_metric: float = float("nan")
-    #: One entry per sweep, in order.
     stages: list[DpicStage] = field(default_factory=list)
-    #: Why the balance did not run, when it did not.
     message: str = ""
 
     @property
@@ -147,82 +112,34 @@ class DpicBalanceResult:
 
 @dataclass
 class DpicBalancer:
-    """Coarse-to-fine grid search for the digital weight that nulls the direct path.
+    """Coarse-to-fine grid search for the digital weight that nulls the direct path."""
 
-    Four sweeps, in the VI's order: coarse phase at a small fixed injection
-    amplitude, coarse amplitude at that phase, then a fine pass over each,
-    windowed to +/- one coarse step around the coarse winner. Each sweep takes
-    the argmin of everything it measured, exactly as the VI's "array minimum"
-    does; it does not require an improvement over the seed.
-    """
-
-    # --- coarse pass: the VI's 60 phase points and 20 amplitude points ---
     coarse_phase_step_deg: float = 6.0
     coarse_amp_step: float = 0.05
-    #: "Start with small Tx Amp" -- the amplitude the coarse phase sweep runs at.
     coarse_probe_amplitude: float = 0.1
 
-    # --- fine pass: swept over +/- the matching coarse step ---
     phase_step_deg: float = 0.2
     amp_step: float = 0.001
 
-    #: Above this the injection clips the DAC.
     max_amplitude: float = 1.0
 
-    # --- dwell times, straight from the VI's Wait (ms) nodes ---
-    #
-    # ``read_metric`` additionally blocks for chunks captured *after* the
-    # change, which the VI has no equivalent of; these are on top of that, not
-    # instead of it. They are also what makes a sweep legible: at a few tens of
-    # milliseconds per point the whole search flashes past and the plot shows
-    # no pattern at all.
     coarse_settle_time_s: float = 0.2
     fine_settle_time_s: float = 0.1
-    #: After a sweep's winner is applied, before the next sweep starts.
     stage_settle_time_s: float = 0.5
 
-    # --- the VI's "Tune Rx1 Gain to DC value of ~0.5" stage ---
-    #: Target level, and the half-width of the window around it that counts as
-    #: in range (the VI's Upper Th / Lower Th).
     amp_target: float = 0.5
     amp_tolerance: float = 0.05
-    #: The VI's +/-1 dB ladder, applied to the measure Tx and the Rx together.
     gain_step_db: float = 1.0
     gain_settle_time_s: float = 0.25
-    #: The VI's loop is unbounded; this keeps a level that can never be reached
-    #: (a dead path, a disconnected antenna) from running forever.
     max_gain_steps: int = 60
 
-    #: Wall-clock ceiling for one pair, split across pairs by ``balance_all``.
-    #: A sweep that runs out stops where it is and keeps the best point found
-    #: so far.
-    #:
-    #: The VI's own dwells put a floor under this: 60*0.2 + 20*0.2 + 60*0.1 +
-    #: 100*0.1 = 32 s of sleeping per pair, plus four 0.5 s stage settles and
-    #: 240 waits for fresh Rx chunks -- call it 45 s. The default clears that
-    #: for three pairs; a rig with more should raise it rather than run every
-    #: sweep truncated.
     time_budget_s: float = 300.0
 
-    #: Asked before every sweep point. True ends the search where it stands, so
-    #: a Stop or a shutdown does not have to wait out the whole time budget.
     should_abort: Callable[[], bool] | None = None
 
-    #: Called after every measurement with the live state of the loop, so the
-    #: UI can show phase, amplitude and gain moving instead of a frozen panel
-    #: and a progress-free wait. Never allowed to break the search.
-    #:
-    #: May be called from several threads at once when ``parallel_devices`` is
-    #: on, so an implementation has to be safe to call concurrently.
     on_progress: Callable[[dict], None] | None = None
 
-    #: Balance the loops of different radios at the same time rather than one
-    #: after another. Every loop then gets the *whole* time budget instead of
-    #: its share of it, and a group of N radios finishes in roughly the time
-    #: one of them takes. Loops that share a radio still run in series.
     parallel_devices: bool = True
-
-    # ------------------------------------------------------------- internals
 
     @staticmethod
     def _points(start: float, step: float, count: int) -> list[float]:
@@ -249,12 +166,7 @@ class DpicBalancer:
     def _sweep(
         self, name, values, apply, state, settle_s, ch
     ) -> tuple[float | None, DpicStage]:
-        """Measure at every value; return the argmin and a record of the sweep.
-
-        The argmin is ``None`` when nothing on the sweep was measurable. The
-        stage is always returned, so a sweep that measured nothing -- or that
-        the time budget cut short -- is visible rather than silently absent.
-        """
+        """Measure at every value; return the argmin and a record of the sweep."""
         stage = DpicStage(name=name, planned=len(values))
         started = time.monotonic()
         best_value = None
@@ -290,19 +202,7 @@ class DpicBalancer:
         return best_value, stage
 
     def _tune_gain(self, ch: DpicChannel, state: dict, when: str) -> None:
-        """The VI's "Tune Rx1 Gain to DC value of ~0.5" stage.
-
-        A +/-1 dB ladder applied to the **measure Tx's analog gain and the Rx
-        gain together**, one step per iteration with a settle in between, until
-        the measured level sits inside [target - tolerance, target + tolerance].
-
-        Both halves move because the VI moves both: raising Rx gain alone lifts
-        the noise floor with the signal, while raising the measurement Tx as
-        well lifts the direct path that is about to be nulled. This ran as a
-        proportional single jump before -- fewer measurements, but it converged
-        in one invisible step, so nothing on the plot ever showed the level
-        being walked into range.
-        """
+        """The VI's "Tune Rx1 Gain to DC value of ~0.5" stage."""
         if not ch.tunes_gain():
             return
 
@@ -333,8 +233,6 @@ class DpicBalancer:
             rx_gain = min(max(ch.get_rx_gain() + delta, rx_min), rx_max)
             tx_gain = min(max(ch.get_tx_gain() + delta, tx_min), tx_max)
 
-            # Both already against the stop the level needs to move past: no
-            # further step can change anything, so stop rather than spin.
             if rx_gain == ch.get_rx_gain() and tx_gain == ch.get_tx_gain():
                 return
 
@@ -343,13 +241,7 @@ class DpicBalancer:
             state["settle"](self.gain_settle_time_s)
 
     def _search(self, ch: DpicChannel, state: dict) -> dict | None:
-        """The VI's four sweeps. Returns the best point, or None if none measured.
-
-        Each sweep applies its winner and then waits ``stage_settle_time_s``,
-        matching the VI's 500 ms between stages -- long enough that the
-        settled point is visible on the plot before the next sweep starts
-        moving things again.
-        """
+        """The VI's four sweeps. Returns the best point, or None if none measured."""
 
         def apply_phase(v):
             value = v % 360.0
@@ -367,7 +259,6 @@ class DpicBalancer:
         amp = min(max(self.coarse_probe_amplitude, 0.0), self.max_amplitude)
         metric = math.inf
 
-        # 1. Coarse phase over the full circle, at a small fixed amplitude.
         apply_amp(amp)
         found, stage = self._sweep(
             "coarse phase",
@@ -386,7 +277,6 @@ class DpicBalancer:
         apply_phase(phase)
         state["settle"](self.stage_settle_time_s)
 
-        # 2. Coarse amplitude over the whole digital range, at that phase.
         found, stage = self._sweep(
             "coarse amplitude",
             self._points(
@@ -404,7 +294,6 @@ class DpicBalancer:
         apply_amp(amp)
         state["settle"](self.stage_settle_time_s)
 
-        # 3. Fine phase, +/- one coarse step around the coarse winner.
         found, stage = self._sweep(
             "fine phase",
             self._points(
@@ -422,7 +311,6 @@ class DpicBalancer:
         apply_phase(phase)
         state["settle"](self.stage_settle_time_s)
 
-        # 4. Fine amplitude, +/- one coarse step around the coarse winner.
         found, stage = self._sweep(
             "fine amplitude",
             self._points(
@@ -445,15 +333,8 @@ class DpicBalancer:
             return None
         return {"phase": phase, "amp": amp, "metric": metric}
 
-    # ------------------------------------------------------------------- api
-
     def _measurement_state(self, ch: DpicChannel, deadline: float, counter: dict):
-        """The callbacks a search runs on, sharing one counter and stage list.
-
-        ``phase`` and ``amplitude`` read back the values last applied, so a
-        progress report always describes the point that was just measured
-        rather than the one about to be set.
-        """
+        """The callbacks a search runs on, sharing one counter and stage list."""
         last = {"phase": float(ch.start_phase_deg), "amp": float(ch.start_amplitude)}
 
         def expired():
@@ -483,7 +364,6 @@ class DpicBalancer:
 
     def _failed(self, ch, counter, elapsed, start_metric, stages, message):
         """Restore the pre-search settings and report why."""
-        # Never leave the hardware at an arbitrary point (or amplitude 0).
         ch.set_phase(float(ch.start_phase_deg))
         ch.set_amplitude(float(ch.start_amplitude))
         return DpicBalanceResult(
@@ -506,21 +386,11 @@ class DpicBalancer:
     def balance(
         self, ch: DpicChannel, time_budget_s: float | None = None
     ) -> DpicBalanceResult:
-        """Balance one loop. ``time_budget_s`` overrides the balancer's own.
-
-        Passed in rather than assigned to ``self``: several loops share one
-        balancer when they run concurrently, and a field mutated per loop is
-        the whole search's budget seen by every other thread.
-        """
+        """Balance one loop. ``time_budget_s`` overrides the balancer's own."""
         budget = self.time_budget_s if time_budget_s is None else float(time_budget_s)
         t_start = time.monotonic()
         counter = {"n": 0}
 
-        # A null search is meaningless if the direct path is in the noise. This
-        # runs on its own deadline, *outside* the search budget: it is a
-        # prerequisite of the search, not part of it, and on a slow measurement
-        # path it could otherwise eat the whole budget and leave every sweep to
-        # break on its first point.
         gain_state = self._measurement_state(ch, time.monotonic() + budget, counter)
         self._tune_gain(ch, gain_state, "before")
 
@@ -528,7 +398,6 @@ class DpicBalancer:
         state = self._measurement_state(ch, deadline, counter)
         stages = state["stages"]
 
-        # Seeded from current settings, so a failed search can restore them.
         ch.set_phase(float(ch.start_phase_deg))
         ch.set_amplitude(float(ch.start_amplitude))
         state["settle"](self.stage_settle_time_s)
@@ -565,10 +434,6 @@ class DpicBalancer:
                 else "no sweep point returned a usable metric",
             )
 
-        # The direct path is nulled now, so the Rx sits far below its operating
-        # point; the VI re-runs the same gain stage here. Done after min_metric
-        # is fixed, so the null depth is measured at a single gain setting, and
-        # on a fresh deadline for the same reason as the first call.
         after_state = self._measurement_state(ch, time.monotonic() + budget, counter)
         after_state["last"].update({"phase": best["phase"], "amp": best["amp"]})
         self._tune_gain(ch, after_state, "after")
@@ -593,12 +458,7 @@ class DpicBalancer:
 
     @staticmethod
     def _lanes(channels: Sequence[DpicChannel]) -> list[list[DpicChannel]]:
-        """Group loops into per-radio lanes, keeping each lane's input order.
-
-        Two loops on the same radio contend for its Tx and Rx chains, so they
-        stay in one lane and run in series. Loops with no radio named share a
-        lane for the same reason: nothing says they are independent.
-        """
+        """Group loops into per-radio lanes, keeping each lane's input order."""
         lanes: dict[object, list[DpicChannel]] = {}
         for ch in channels:
             lanes.setdefault(ch.device, []).append(ch)
@@ -608,25 +468,13 @@ class DpicBalancer:
         """Balance one radio's loops in series, returning (channel, result) pairs."""
         results = []
         for ch in lane:
-            # Checked between loops as well as inside each sweep: an abort
-            # during loop 1 must not start loop 2.
             if self.should_abort is not None and self.should_abort():
                 break
             results.append((ch, self.balance(ch, budget)))
         return results
 
     def balance_all(self, channels: Sequence[DpicChannel]) -> list[DpicBalanceResult]:
-        """Balance every loop, one lane per radio, lanes running together.
-
-        With ``parallel_devices`` on, the radios in a group are balanced at the
-        same time: their loops are physically independent, so serialising them
-        only made a four-radio rig wait four times as long. Each lane divides
-        the time budget between its *own* loops, not between every loop in the
-        group -- a lane that holds one loop gets the whole budget.
-
-        Results come back in the order the channels were given, whichever lane
-        finished first.
-        """
+        """Balance every loop, one lane per radio, lanes running together."""
         channels = list(channels)
         if not channels:
             return []
@@ -647,8 +495,6 @@ class DpicBalancer:
                 for future in futures:
                     pairs.extend(future.result())
 
-        # Back into the caller's order: a lane that finished first must not
-        # reorder the results the report and the saved config are keyed by.
         order = {id(ch): i for i, ch in enumerate(channels)}
         pairs.sort(key=lambda pair: order.get(id(pair[0]), 0))
         return [result for _ch, result in pairs]

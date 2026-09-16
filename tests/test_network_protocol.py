@@ -1,7 +1,4 @@
-"""Protocol-level tests for the wire framing, command/response round-trips, the
-authentication handshake, and numpy data-chunk framing used between the BioView
-client and server. These run entirely in-process over a socketpair (no server or
-hardware required)."""
+"""Protocol-level tests for the wire framing, command/response round-trips, the"""
 
 import socket
 import struct
@@ -36,7 +33,6 @@ def sockpair():
 def test_command_response_roundtrip(sockpair):
     client, server = sockpair
 
-    # Server side: read the command, reply with a SUCCESS response.
     def server_side():
         raw = recv_message(server)
         cmd_type, payload = parse_and_validate_command(raw)
@@ -47,7 +43,6 @@ def test_command_response_roundtrip(sockpair):
     t = threading.Thread(target=server_side)
     t.start()
 
-    # send_command sends the framed command and returns the framed response bytes
     raw_resp = send_command(client, Command.START_STREAMING, {"foo": "bar"})
     t.join(timeout=5)
 
@@ -57,7 +52,6 @@ def test_command_response_roundtrip(sockpair):
 
 
 def test_invalid_command_is_rejected():
-    # A non-Command object is not sent on the wire.
     a, b = socket.socketpair()
     try:
         assert send_command(a, "NOT_A_COMMAND", {}) is None
@@ -112,18 +106,15 @@ def test_auth_handshake_over_socket(sockpair):
 
 
 def test_datachunk_framing_roundtrip(sockpair):
-    """A numpy chunk sent with send_datachunk can be reconstructed on the other
-    end using the same [total][header_len][header][raw] framing the client uses."""
+    """A numpy chunk sent with send_datachunk can be reconstructed on the other"""
     client, server = sockpair
     data = np.arange(12, dtype=np.float32).reshape(3, 4)
     sources = [{"group_id": "RF", "channel": i} for i in range(3)]
 
     send_datachunk(client, data, meta={"sources": sources})
 
-    # Read [total_len (4)][header_len (4)]
     prefix = _recv_exactly(server, 8)
     total_len, header_len = struct.unpack("!II", prefix)
-    # total_len counts header_len(4) + header + raw
     body = _recv_exactly(server, total_len - 4)
     import json
 

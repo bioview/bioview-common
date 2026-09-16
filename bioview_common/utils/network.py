@@ -13,11 +13,7 @@ from .logs import log_print
 
 
 def set_exclusive_bind(sock: socket.socket) -> None:
-    """Configure a listener so bind() fails if another process serves the port.
-
-    Windows lets SO_REUSEADDR bind a port that is actively being listened on;
-    SO_EXCLUSIVEADDRUSE restores the POSIX guarantee.
-    """
+    """Configure a listener so bind() fails if another process serves the port."""
     if os.name == "nt":
         with contextlib.suppress(AttributeError, OSError):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -30,11 +26,10 @@ def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
     try:
-        # Doesn't even have to be reachable
-        s.connect(("8.8.8.8", 80))  # Google DNS servers
+        s.connect(("8.8.8.8", 80))
         IP = s.getsockname()[0]
     except Exception:
-        IP = "127.0.0.1"  # localhost
+        IP = "127.0.0.1"
     finally:
         s.close()
 
@@ -46,11 +41,7 @@ _LOCAL_ADDR_TTL = 30.0
 
 
 def get_local_addresses() -> set:
-    """Every IPv4 address belonging to this machine (loopback plus each NIC).
-
-    Needed because a machine on a public-address network reports a non-private
-    IP, so private-range membership alone cannot mean "same machine".
-    """
+    """Every IPv4 address belonging to this machine (loopback plus each NIC)."""
     now = time.time()
     if (
         _LOCAL_ADDR_CACHE["addrs"] is not None
@@ -99,9 +90,7 @@ def get_app_info():
 
 
 def recv_exactly(sock: socket.socket, num_bytes: int):
-    """Read exactly num_bytes from the socket. Returns the bytes, or None if the
-    connection was closed before all bytes were received. Any socket timeout or
-    error is allowed to propagate to the caller so it can decide how to react."""
+    """Read exactly num_bytes from the socket. Returns the bytes, or None if the"""
     chunks = []
     remaining = num_bytes
     while remaining > 0:
@@ -114,10 +103,7 @@ def recv_exactly(sock: socket.socket, num_bytes: int):
 
 
 def recv_message(sock: socket.socket, logger=None):
-    """Receive one length-framed control message, or None if the peer closed.
-
-    Framed as [Length (4 bytes, big-endian)][JSON payload].
-    """
+    """Receive one length-framed control message, or None if the peer closed."""
     header = recv_exactly(sock, 4)
     if not header:
         return None
@@ -189,11 +175,7 @@ def send_response(
 
 
 def send_datachunk(sock: socket.socket, data: Any, meta: dict = None, logger=None):
-    """Send a numpy chunk as
-    [Total Length (4)][Header Length (4)][JSON Header][Raw Data].
-
-    Metadata such as the ordered source list is merged into the JSON header.
-    """
+    """Send a numpy chunk as"""
     if not hasattr(data, "tobytes"):
         log_print(
             logger,
@@ -216,7 +198,6 @@ def send_datachunk(sock: socket.socket, data: Any, meta: dict = None, logger=Non
         header_len = len(header_bytes)
         total_len = 4 + header_len + len(raw_data)
 
-        # Pack everything
         packet = struct.pack("!II", total_len, header_len) + header_bytes + raw_data
         sock.sendall(packet)
     except Exception as e:

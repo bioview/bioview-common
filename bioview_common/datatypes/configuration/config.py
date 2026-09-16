@@ -3,16 +3,7 @@ from typing import Any
 
 
 def merged_with_defaults(defaults: dict[str, Any], overrides: dict[str, Any]):
-    """``overrides`` applied over ``defaults``, merging one level of nesting.
-
-    A config file that sets only ``calibration.enabled`` used to replace the
-    whole default calibration block, so every key it did not mention vanished
-    and the value the panel showed came from a fallback buried in the backend
-    rather than from the configuration. Nested blocks (``calibration``,
-    ``dpic_balance``, ``fmcw``, ...) are flat, so one level is all that is
-    needed and a deeper walk would only make ``channel_map`` harder to reason
-    about.
-    """
+    """``overrides`` applied over ``defaults``, merging one level of nesting."""
     merged: dict[str, Any] = {}
     for key, value in (overrides or {}).items():
         base = defaults.get(key)
@@ -27,7 +18,6 @@ class BaseConfig:
         if not config_dict:
             config_dict = {}
 
-        # Load all parameters from dictionary as attributes
         for param, value in config_dict.items():
             setattr(self, param, value)
 
@@ -50,8 +40,6 @@ class BaseConfig:
         for key, value in self.__dict__.items():
             if key.startswith("_") or callable(value):
                 continue
-            # Enum values (e.g. cfg_type) are not JSON serializable, so
-            # store their value.
             if isinstance(value, Enum):
                 value = value.value
             result[key] = value
@@ -61,11 +49,6 @@ class BaseConfig:
         return result
 
 
-#: ``device_type`` -> (wire ``type`` name, configuration class). Populated by
-#: ``register_device_configuration`` as each shipped configuration module is
-#: imported, so adding a device means adding one registration rather than
-#: editing a mapping here, a branch in ``load_from_dict`` and a branch in
-#: ``get_configuration_callback``.
 _DEVICE_CONFIGURATIONS: dict[str, tuple[str, type]] = {}
 
 
@@ -95,8 +78,6 @@ def _resolve_device_type(value: dict[str, Any]) -> str | None:
     if isinstance(cfg_type, Enum):
         cfg_type = cfg_type.value
 
-    # A config file may spell the type in either case ("USRP" or "usrp"), and
-    # older files carry the device_type value in the ``type`` field.
     key = str(cfg_type).lower()
     for device_type, (name, _) in _DEVICE_CONFIGURATIONS.items():
         if key in {name.lower(), device_type.lower()}:
@@ -107,14 +88,12 @@ def _resolve_device_type(value: dict[str, Any]) -> str | None:
 class Configuration:
     def __init__(self, config_dict: dict[str, Any] | None = None):
         self.experiment = None
-        self.devices = {}  # device_id -> BaseConfig subclass instance
+        self.devices = {}
 
         if config_dict:
             self.load_from_dict(config_dict)
 
     def load_from_dict(self, config_dict: dict[str, Any]):
-        # Deferred: the configuration package imports this module, and
-        # importing it is what fills _DEVICE_CONFIGURATIONS.
         from . import ExperimentConfiguration
 
         for key, value in config_dict.items():

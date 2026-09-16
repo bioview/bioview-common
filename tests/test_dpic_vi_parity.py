@@ -1,19 +1,4 @@
-"""The search must be the VI, point for point and wait for wait.
-
-Checked against the ``Pig_2Ch_NCS_BIOPAC_BalanceSignal`` block diagram:
-
-| VI stage | Points | Value | Wait |
-|---|---|---|---|
-| Tune Rx1 gain (before) | until in range | Rx1 *and* Tx1 gain +/-1 dB | 250 ms |
-| Coarse phase, Tx2 amp 0.1 | 60 | ``i * (360/60)`` | 200 ms |
-| Coarse amplitude | 20 | ``i / 20`` | 200 ms |
-| Fine phase | ``(6*2)/0.2`` = 60 | ``start + i*0.2``, start = best - 6 | 100 ms |
-| Fine amplitude | ``(0.05*2)/0.001`` = 100 | ``start + i*0.001``, best - 0.05 | 100 ms |
-| Tune Rx1 gain (after) | until in range | as above | 250 ms |
-
-Each sweep's winner is applied and followed by a 500 ms settle before the next
-sweep starts.
-"""
+"""The search must be the VI, point for point and wait for wait."""
 
 import pytest
 
@@ -21,12 +6,7 @@ from bioview_common.signal_schemes.dpic import DpicBalancer, DpicChannel
 
 
 def _residual(phase, amp):
-    """A residual with a single minimum at 174 deg / 0.37, unimodal on both axes.
-
-    Stands in for ``|d + h*a*e^(j*phi)|``: what matters here is that each sweep
-    has a winner that is not its first point, so the fine sweeps really do have
-    a coarse result to bracket.
-    """
+    """A residual with a single minimum at 174 deg / 0.37, unimodal on both axes."""
     phase_error = abs(((phase - 174.0 + 180.0) % 360.0) - 180.0)
     return abs(amp - 0.37) + phase_error / 1000.0
 
@@ -89,14 +69,12 @@ def test_sweep_geometry_is_the_vis():
 
 def test_coarse_phase_is_sixty_points_of_six_degrees_at_amplitude_point_one():
     recorder, _ = _run()
-    # The seed applies the start point first; the sweep proper follows.
     coarse = recorder.phases[1:61]
     assert coarse[0] == 0.0
     assert coarse[-1] == 354.0
     assert all(
         abs((b - a) - 6.0) < 1e-9 for a, b in zip(coarse, coarse[1:], strict=False)
     )
-    # "1. Start with small Tx Amp"
     assert recorder.amps[1] == pytest.approx(0.1)
 
 
@@ -132,15 +110,14 @@ def test_dwell_per_point_matches_the_vis_wait_nodes():
     recorder, _ = _run()
     waits = recorder.waits
 
-    # Seed settle, then the four sweeps each followed by a stage settle.
     assert waits[0] == pytest.approx(0.5)
-    assert waits[1:61] == [pytest.approx(0.2)] * 60  # coarse phase
+    assert waits[1:61] == [pytest.approx(0.2)] * 60
     assert waits[61] == pytest.approx(0.5)
-    assert waits[62:82] == [pytest.approx(0.2)] * 20  # coarse amplitude
+    assert waits[62:82] == [pytest.approx(0.2)] * 20
     assert waits[82] == pytest.approx(0.5)
-    assert waits[83:143] == [pytest.approx(0.1)] * 60  # fine phase
+    assert waits[83:143] == [pytest.approx(0.1)] * 60
     assert waits[143] == pytest.approx(0.5)
-    assert waits[144:244] == [pytest.approx(0.1)] * 100  # fine amplitude
+    assert waits[144:244] == [pytest.approx(0.1)] * 100
     assert waits[244] == pytest.approx(0.5)
 
 
@@ -152,7 +129,6 @@ def test_the_search_is_241_measurements():
 
 def test_gain_stage_dwells_250ms_and_moves_both_gains():
     recorder = _Recorder()
-    # Level rises with Rx gain; starts below the window and needs three steps.
     channel = recorder.channel(
         get_rx_gain=lambda: recorder.gains["rx"],
         set_rx_gain=lambda v: recorder.gains.__setitem__("rx", v),

@@ -111,7 +111,6 @@ def test_dpic_sweeps_match_the_labview_vi():
         state["amp"] = a
         amps.append(a)
 
-    # Minimum at phase 174 deg / amplitude 0.372, on neither coarse grid.
     def read_metric():
         return abs(
             0.372 * np.exp(1j * np.deg2rad(174.0))
@@ -130,15 +129,11 @@ def test_dpic_sweeps_match_the_labview_vi():
         )
     )
 
-    # 1 seed + 60 coarse phase + 20 coarse amp + 60 fine phase + 100 fine amp.
     assert result.num_measurements == 241
-    # Coarse phase sweep: 0, 6, ... 354, all at the 0.1 probe amplitude.
     assert phases[1:61] == [6.0 * i for i in range(60)]
     assert amps[1] == 0.1
-    # Coarse amplitude sweep: 0, 0.05, ... 0.95.
     assert len(amps[2:22]) == 20
     assert abs(amps[21] - 0.95) < 1e-9
-    # Fine sweeps: 60 phase points of 0.2 deg, 100 amplitude points of 0.001.
     fine_phase = phases[62:122]
     assert len(fine_phase) == 60
     assert abs((fine_phase[1] - fine_phase[0]) - 0.2) < 1e-9
@@ -178,7 +173,6 @@ def test_dpic_gain_stage_runs_on_both_sides_of_the_search():
         amp_step=0.5,
         on_progress=lambda p: stages.append(p["stage"]),
     )
-    # Already in range, so each stage measures once and returns.
     result = balancer.balance(_gain_channel(lambda g: 0.5, gains))
 
     assert result.converged
@@ -190,8 +184,6 @@ def test_dpic_gain_ladder_steps_tx_and_rx_together():
     """The VI's +/-1 dB ladder moves the measure Tx and the Rx in lockstep."""
     gains = {"rx": 20.0, "tx": 20.0}
 
-    # Level starts far below target and rises 0.05 per dB of Rx gain, so the
-    # ladder has to climb six steps to reach the 0.45..0.55 window.
     def level(g):
         return 0.2 + 0.05 * (g["rx"] - 20.0)
 
@@ -211,7 +203,7 @@ def test_dpic_gain_ladder_stops_at_the_end_of_the_range():
     gains = {"rx": 70.0, "tx": 70.0}
     balancer = DpicBalancer(max_gain_steps=200)
     ch = _gain_channel(
-        lambda g: 0.0,  # never reaches the target, whatever the gain
+        lambda g: 0.0,
         gains,
         rx_gain_range=(0.0, 76.0),
         tx_gain_range=(0.0, 76.0),
@@ -229,11 +221,6 @@ def test_scheme_from_config_factory():
         {"signal_scheme": "cw", "if_freq": [100e3, 110e3], "tx_amplitude": [1, 1]},
     )
     assert scheme.scheme_type == "cw"
-
-
-# ---------------------------------------------------------------------------
-# Calibration pilot: parity with the reference B210_2CHANNEL implementation.
-# ---------------------------------------------------------------------------
 
 
 def _reference_triangle(fs, freq, n_tri, period_s, offset, amplitude, n, start):
@@ -271,8 +258,6 @@ def test_burst_envelope_matches_reference_triangle():
         want, want_gate = _reference_triangle(
             fs, freq, n_tri, period_s, 0.0, 1.0, 4096, start
         )
-        # BioView carries the amplitude as the scheme's modulation_depth, so the
-        # envelope itself is the reference triangle at amplitude 1.
         np.testing.assert_allclose(got, want, atol=1e-6)
         np.testing.assert_array_equal(gate, want_gate)
 
@@ -318,9 +303,8 @@ def test_calibration_reference_is_gated_envelope():
     )
     ref = scheme.get_calibration_reference(0, 0, 20000)
     assert ref.shape == (20000,)
-    assert np.any(ref != 0.0)  # bursts present
-    assert np.any(ref == 0.0)  # gated off between bursts
-    # A channel outside inject_channels carries no reference.
+    assert np.any(ref != 0.0)
+    assert np.any(ref == 0.0)
     assert not np.any(scheme.get_calibration_reference(1, 0, 1000))
 
 
@@ -346,8 +330,6 @@ def test_calibration_toggles_on_every_scheme():
         assert scheme.cycle_length() is not None
         scheme.update_param("calibration.enabled", True)
         assert scheme.calibration_enabled(), scheme.scheme_type
-        # Enabling calibration makes the waveform aperiodic, which is what tells
-        # TransmitWorker to stop replaying its cyclic buffer.
         assert scheme.cycle_length() is None, scheme.scheme_type
         scheme.update_param("calibration.enabled", False)
         assert not scheme.calibration_enabled()
@@ -364,7 +346,7 @@ def test_dpic_balancer_seeds_from_current_settings():
             measure_rx=0,
             set_phase=lambda p: state.update(phase=p),
             set_amplitude=lambda a: state.update(amp=a),
-            read_metric=lambda: None,  # measurement path is silent
+            read_metric=lambda: None,
             start_phase_deg=30.0,
             start_amplitude=0.7,
         )

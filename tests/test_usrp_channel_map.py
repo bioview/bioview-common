@@ -119,7 +119,6 @@ def test_two_components_double_the_rows_per_pair():
         "Tx2Rx2",
         "Tx2Rx2_Phase",
     ]
-    # Both rows of a pair demodulate the same physical channel.
     for amp, phase in zip(by_channel[::2], by_channel[1::2], strict=True):
         assert (amp.tx_idx, amp.rx_idx) == (phase.tx_idx, phase.rx_idx)
         assert (amp.component, phase.component) == ("amplitude", "phase")
@@ -141,7 +140,6 @@ def test_custom_layout_labels_carry_the_component_suffix():
 def test_components_from_config_reads_the_legacy_switch():
     assert components_from_config({}) == ["amplitude"]
     assert components_from_config({"display_imaginary": True}) == ["phase"]
-    # An explicit list wins over the older boolean.
     assert components_from_config(
         {"display_imaginary": True, "components": ["amplitude", "phase"]}
     ) == ["amplitude", "phase"]

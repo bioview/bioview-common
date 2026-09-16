@@ -1,8 +1,4 @@
-"""The shared catalogue of recognised failures.
-
-Both GUIs render errors through this, so an entry added here changes the
-wording in the Monitor and the Configurator at once.
-"""
+"""The shared catalogue of recognised failures."""
 import json
 from pathlib import Path
 

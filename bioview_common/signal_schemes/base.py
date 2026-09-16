@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -35,11 +34,7 @@ class SignalScheme(ABC):
         return 0.0
 
     def tx_phase_offset(self, tx_idx: int) -> float:
-        """Static programmed Tx phase (rad), without the carrier ramp.
-
-        This is what the demodulator subtracts; :meth:`tx_phase_at` also carries
-        the IF ramp that downconversion has already removed.
-        """
+        """Static programmed Tx phase (rad), without the carrier ramp."""
         return 0.0
 
     def get_tx_amplitude(self, tx_idx: int) -> float:
@@ -48,8 +43,10 @@ class SignalScheme(ABC):
     def get_num_tx_channels(self) -> int:
         return 0
 
-    # Optional hooks: concrete no-ops, so a scheme with no tunable parameters
-    # need not override them.
+    def set_samp_rate(self, samp_rate: float) -> None:
+        """Adopt a new sample rate, keeping every programmed setting."""
+        self.samp_rate = float(samp_rate)
+
     def update_param(self, param: str, value) -> None:  # noqa: B027
         pass
 
@@ -64,6 +61,6 @@ class SignalScheme(ABC):
 
     def create_rx_processor(
         self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
-    ) -> Optional[RxProcessor]:
+    ) -> RxProcessor | None:
         """Create a stateful receive processor for this scheme."""
         return None

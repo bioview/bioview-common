@@ -1,7 +1,4 @@
-"""Shared datatypes, protocol and helpers for the BioView packages.
-
-The star imports re-export each submodule's ``__all__``.
-"""
+"""Shared datatypes, protocol and helpers for the BioView packages."""
 
 from .constants import *  # noqa: F403
 from .datatypes import *  # noqa: F403

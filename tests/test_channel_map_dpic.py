@@ -1,10 +1,4 @@
-"""Adding a DPIC pair must retire both halves of the inject channel.
-
-A radio channel used to radiate the cancellation tone is not measuring, and
-neither is the Rx that shares it -- every TxNRxM row against that Rx is dead by
-construction. The grid used to keep those rows, so a config gained channels of
-noise the moment a pair was added.
-"""
+"""Adding a DPIC pair must retire both halves of the inject channel."""
 
 from bioview_common.datatypes.configuration.usrp_channel_map import (
     build_global_registry,
@@ -53,7 +47,6 @@ def test_inject_tx_retires_its_own_rx():
 def test_inject_rx_is_matched_by_physical_channel_not_index():
     """The retired Rx is the inject Tx's own port, on its own radio."""
     registry = build_global_registry(TWO_RADIOS)
-    # Global Tx 2 is ("B", 0); the Rx sharing that port is global Rx 2.
     assert registry.tx_entries[2] == ("B", 0)
     assert inject_rx_indices({"dpic": [{"inject_tx": 2}]}, registry) == {2}
 
@@ -66,7 +59,6 @@ def test_hybrid_mimo_drops_a_listed_inject_rx():
         "dpic": [{"inject_tx": 2, "measure_tx": 0, "measure_rx": 0}],
     }
     labels = _labels(channel_map, TWO_RADIOS)
-    # Global Rx 2 is gone; Rx 3 survives and is relabelled Rx3.
     assert labels == [
         "Tx1Rx1",
         "Tx1Rx2",

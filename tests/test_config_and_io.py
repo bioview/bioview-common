@@ -17,10 +17,6 @@ from bioview_common.datatypes.configuration.usrp_channel_map import (
 )
 
 
-# Sample configurations live beside the tests rather than in the working tree
-# above the repo: each BioView package is checked out on its own in CI, so a
-# path outside the repo silently resolved to nothing and parse_configuration_file
-# returned {} instead of failing.
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DPIC_2X2_CFG = DATA_DIR / "usrp_dpic_2x2_mimo_cfg.json"
 SAMPLE_USRP_CFG = DATA_DIR / "sample_usrp_cfg.json"
@@ -104,7 +100,6 @@ def test_parse_configuration_file_sample_usrp_single_radio():
     assert usrp.get_type() == SUPPORTED_CONFIGURATION_TYPES.USRP
 
     hardware = build_hardware_dict(usrp, "USRP")
-    # The radio name comes from the sample config in tests/data/.
     assert set(hardware) == {"MyB210_3"}
     sources, registry, dpic = resolve_channel_map(
         "USRP",
@@ -154,7 +149,6 @@ def test_configuration_roundtrip(tmp_path):
     parsed = parse_configuration_file(cfg_path)
     config = Configuration.from_dict({k: v.to_dict() for k, v in parsed.items()})
     assert "RF" in config.devices
-    # A round-trip through dict form should preserve the device.
     assert "RF" in config.to_dict()
 
 

@@ -9,20 +9,7 @@ license = {text = "GPL-v3"}
 readme = "README.md"
 requires-python = ">=3.12, <3.14"
 dependencies = [
-    # Imported at runtime by signal_schemes/ and utils/preprocess.py, so they
-    # belong here rather than in the dev group -- an install without them is
-    # broken, and an unpinned numpy is how a 2.x landed in a 1.x-only rig.
-    #
-    # numpy is capped below 2 for the whole project: the UHD Python bindings
-    # (uhd 4.10.0.0, the newest release) are built against the NumPy 1.x ABI and
-    # declare "numpy>=1.11,<2.0" themselves. Under NumPy 2 the USRP backend
-    # deadlocks on pybind11's lazy C-API import and never streams. Upstream UHD
-    # has NumPy 2 support on master for Python 3.13+ only; revisit when that
-    # ships and this project moves off 3.12.
     "numpy (>=1.26,<2)",
-    # scipy 1.18 requires numpy>=2.0.0, so 1.17.x is the newest usable series
-    # while the numpy cap above stands. Only scipy.signal is used (butter,
-    # ellip, sosfilt, sosfilt_zi), which is unchanged across both.
     "scipy (>=1.16.1,<1.18)",
 ]
 
@@ -60,35 +47,27 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default
-# Plus isort (`I`) for import sorting
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90"]
 ignore = [
-    "E203",  # whitespace before ':'
+    "E203",
 ]
 
-# Allow fix for all enabled rules (when `--fix`) is provided
 fixable = ["ALL"]
 unfixable = []
 
-# Allow unused variables when underscore-prefixed
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
 [tool.ruff.lint.isort]
-known-first-party = ["your_package"]  # Replace with your actual package name
+known-first-party = ["your_package"]
 force-single-line = false
 force-sort-within-sections = false
 lines-after-imports = 2
 
 [tool.ruff.format]
-# Like Black, use double quotes for strings
 quote-style = "double"
-# Like Black, indent with spaces, rather than tabs
 indent-style = "space"
-# Like Black, respect magic trailing commas
 skip-magic-trailing-comma = false
-# Like Black, automatically detect the appropriate line ending
 line-ending = "auto"

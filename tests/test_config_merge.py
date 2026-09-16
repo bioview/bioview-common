@@ -13,7 +13,6 @@ def test_partial_calibration_block_keeps_the_other_defaults():
 
     assert calibration["enabled"] is True
     assert calibration["record_reference"] is False
-    # Not mentioned by the config, so still the defaults rather than absent.
     assert calibration["num_pulses"] == 5
     assert calibration["pulse_duration_s"] == 0.1
     assert calibration["packet_spacing_s"] == 1.0
@@ -35,7 +34,6 @@ def test_burst_timings_are_editable_from_a_config_file():
     assert calibration["num_pulses"] == 3
     assert calibration["pulse_duration_s"] == 0.02
     assert calibration["packet_spacing_s"] == 0.5
-    # Everything else survived the partial block.
     assert calibration["modulation_depth"] == 0.2
 
 

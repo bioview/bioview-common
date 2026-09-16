@@ -7,15 +7,8 @@ from dataclasses import dataclass, field
 from bioview_common.datatypes.datasource import DataSource
 
 
-#: The two quantities the USRP pipeline derives from every Tx/Rx pair.
-#: ``amplitude`` is the normalized baseband magnitude; ``phase`` is the
-#: unwrapped baseband angle in radians with the static Tx phase removed. A
-#: group streams one row per pair per requested component.
 STREAM_COMPONENTS = ("amplitude", "phase")
 
-#: Appended to a pair's label to name its component. Amplitude keeps the bare
-#: ``TxNRxM`` label so single-component configs, recordings and saved display
-#: source lists read exactly as they did before components existed.
 COMPONENT_LABEL_SUFFIX = {"amplitude": "", "phase": "_Phase"}
 
 _COMPONENT_ALIASES = {
@@ -31,11 +24,7 @@ _COMPONENT_ALIASES = {
 
 
 def normalize_components(components) -> list[str]:
-    """Canonicalize a configured component list, preserving its order.
-
-    Duplicates collapse; an empty or missing list means amplitude only, which
-    is what a group streamed before this option existed.
-    """
+    """Canonicalize a configured component list, preserving its order."""
     if components is None:
         return ["amplitude"]
     if isinstance(components, str):
@@ -55,13 +44,7 @@ def normalize_components(components) -> list[str]:
 
 
 def components_from_config(group_config: dict) -> list[str]:
-    """Components a USRP group streams, from its configuration dict.
-
-    ``components`` is the explicit form. ``display_imaginary`` is the older
-    boolean that swapped a group's single streamed row from amplitude to
-    phase; with no ``components`` key it still means exactly that, so old
-    configurations keep their behaviour.
-    """
+    """Components a USRP group streams, from its configuration dict."""
     explicit = (group_config or {}).get("components")
     if explicit:
         return normalize_components(explicit)
@@ -90,11 +73,7 @@ class GlobalChannelRegistry:
 
 @dataclass
 class DpicPair:
-    """One direct-path cancellation loop.
-
-    ``measure_rx`` is a *receive* index and must be given explicitly unless it
-    happens to equal ``measure_tx`` (only true for a 1x1 layout).
-    """
+    """One direct-path cancellation loop."""
 
     inject_tx: int
     measure_tx: int
@@ -130,13 +109,7 @@ def build_global_registry(hardware: dict[str, dict]) -> GlobalChannelRegistry:
 
 
 def inject_rx_indices(channel_map: dict, registry: GlobalChannelRegistry) -> set[int]:
-    """Rx indices sharing a physical channel with a DPIC inject Tx.
-
-    A radio channel used to radiate the cancellation tone is not receiving a
-    measurement, so its Rx half produces rows that are dead by construction --
-    every TxNRxM pair against it is noise. Matching is on ``(device, channel)``
-    from the registry, so it holds however the hardware is laid out.
-    """
+    """Rx indices sharing a physical channel with a DPIC inject Tx."""
     inject_txs = {p["inject_tx"] for p in channel_map.get("dpic", [])}
     inject_ports = {
         registry.tx_entries[t] for t in inject_txs if t < len(registry.tx_entries)
@@ -151,8 +124,6 @@ def _measurement_tx_rx_sets(
     inject_txs = {p["inject_tx"] for p in channel_map.get("dpic", [])}
 
     if layout == "custom":
-        # Pairs are written out one by one; the author said exactly what they
-        # want and nothing is inferred.
         pairs = channel_map.get("pairs", [])
         return sorted({p["tx"] for p in pairs}), sorted({p["rx"] for p in pairs})
 
@@ -163,10 +134,6 @@ def _measurement_tx_rx_sets(
         tx_global = list(range(registry.num_tx))
         rx_global = list(range(registry.num_rx))
 
-    # Adding a DPIC pair retires both halves of the inject channel: the Tx is
-    # radiating the cancellation tone rather than a measurement signal, and its
-    # Rx has nothing to receive. Applied here rather than left to the config so
-    # the grid follows the pair list automatically.
     inject_rxs = inject_rx_indices(channel_map, registry)
     tx_global = [t for t in tx_global if t not in inject_txs]
     rx_global = [r for r in rx_global if r not in inject_rxs]
@@ -181,17 +148,7 @@ def resolve_channel_map(
     disp_freq: float | None = None,
     components=None,
 ) -> tuple[set[DataSource], GlobalChannelRegistry, list[DpicPair]]:
-    """Build DataSource set and DPIC pairs from hardware + channel_map config.
-
-    ``disp_freq`` is the rate (Hz) at which the processing pipeline actually
-    emits display samples for these sources. The client sizes its plot buffers
-    from it, so it must be the post-decimation rate, not the Rx sample rate.
-
-    ``components`` names the per-pair quantities to stream -- see
-    ``STREAM_COMPONENTS``. Each pair yields one source per component, adjacent
-    in channel order, so a two-component group advertises twice the rows. The
-    default, amplitude only, is what a group streamed before.
-    """
+    """Build DataSource set and DPIC pairs from hardware + channel_map config."""
     src_kwargs = {} if disp_freq is None else {"disp_freq": float(disp_freq)}
     registry = build_global_registry(hardware)
     components = normalize_components(components)

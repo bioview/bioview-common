@@ -26,8 +26,6 @@ class BurstEnvelope:
         self.fs = float(fs)
         self.shape = shape
         self.num_pulses = max(int(num_pulses), 1)
-        # Optional override for the single-pulse period. Omitted =>
-        # 1 / envelope_freq_hz, matching the reference B210_2CHANNEL.
         self.pulse_duration_s = (
             max(float(pulse_duration_s), 1e-6) if pulse_duration_s else None
         )
@@ -62,8 +60,6 @@ class BurstEnvelope:
         pos = idx % self.period_len
         gate = (pos < self.burst_len).astype(np.float32)
 
-        # Raw within-period position, as the reference does: identical inside
-        # the gate, and still correct when burst_len is clamped to period_len.
         t_local = pos.astype(np.float64) / self.fs
         wave = self._shape_wave(t_local) + self.envelope_offset
 
@@ -78,12 +74,6 @@ class BurstEnvelopeMixin:
     def _init_calibration(self, samp_rate: float, cal_config: dict):
         self._cal_config = dict(cal_config or {})
         self._cal_enabled = bool(self._cal_config.get("enabled", False))
-        # Depth of the AM overlay relative to the Tx carrier: the pilot's peak
-        # amplitude is this fraction of whatever the channel is transmitting,
-        # so it tracks tx_amplitude instead of being an absolute level.
-        #
-        # 1.0 is 100% modulation -- the carrier reaches zero at the envelope's
-        # trough. Beyond that the carrier inverts, so that is the ceiling.
         self._modulation_depth = min(
             max(float(self._cal_config.get("modulation_depth", 0.2)), 0.0), 1.0
         )
@@ -103,15 +93,27 @@ class BurstEnvelopeMixin:
 
     def set_calibration_enabled(self, enabled: bool) -> None:
         self._cal_enabled = bool(enabled)
-        # Written back so a later scheme re-init cannot resurrect the stale
-        # enabled flag from the original config.
         self._cal_config["enabled"] = self._cal_enabled
 
     def calibration_enabled(self) -> bool:
         return self._cal_enabled
 
+    def set_samp_rate(self, samp_rate: float) -> None:
+        """Adopt a new sample rate across the scheme and its pilot envelope."""
+        self.samp_rate = float(samp_rate)
+        enabled = self._cal_enabled
+        self._init_calibration(self.samp_rate, self._cal_config)
+        self.set_calibration_enabled(enabled)
+        self._recompute_rate_derived()
+
+    def _recompute_rate_derived(self) -> None:  # noqa: B027
+        """Hook: re-derive any sample counts the scheme caches from the rate."""
+
     def handle_common_param(self, param: str, value) -> bool:
         """Apply params every scheme shares. Returns True if consumed."""
+        if param == "samp_rate":
+            self.set_samp_rate(value)
+            return True
         if param == "calibration":
             self._init_calibration(self.samp_rate, value or {})
             return True

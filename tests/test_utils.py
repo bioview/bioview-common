@@ -23,10 +23,6 @@ def test_ip():
 
 
 def test_local_address():
-    # is_local_request answers "is this peer on this machine or its LAN", which
-    # is loopback plus the RFC1918 ranges. It deliberately does NOT mean "this
-    # host": a machine on a routable network has a public address of its own,
-    # so asserting that gethostbyname(gethostname()) is local fails there.
     assert is_local_request("127.0.0.1"), "Local request misidentified as remote"
     assert is_local_request("192.168.1.10"), "LAN request misidentified as remote"
     assert is_local_request("10.0.0.5"), "LAN request misidentified as remote"
@@ -53,10 +49,8 @@ def test_suppress_stdout_and_emit_signal():
     with suppress_stdout():
         print("this should be suppressed")
 
-    # emit_signal should silently ignore None
     emit_signal(None)
 
-    # emit_signal should call the provided callable
     called = {"v": False}
 
     def cb(x):
@@ -68,7 +62,7 @@ def test_suppress_stdout_and_emit_signal():
 
 def test_get_cache_file_is_created_somewhere_writable(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows equivalent
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     assert get_cache_file("testfile.txt").exists()
 

@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import numpy as np
 
-from .base import SignalScheme, RxProcessor
-from .calibration import BurstEnvelopeMixin
 from bioview_common.utils import apply_filter, get_filter
+
+from .base import RxProcessor, SignalScheme
+from .calibration import BurstEnvelopeMixin
+
 
 class PulsedDopplerRxProcessor(RxProcessor):
     def __init__(self, samp_rate: float, if_freq: float, if_filter_bw: float):
         self.samp_rate = samp_rate
         self.if_freq = if_freq
         self.accumulated_phase = 0.0
-        
+
         low_cutoff = if_freq - if_filter_bw / 2
         high_cutoff = if_freq + if_filter_bw / 2
         self.filt = get_filter(
@@ -27,7 +29,7 @@ class PulsedDopplerRxProcessor(RxProcessor):
     def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
         if len(rx_samples) == 0:
             return np.array([])
-            
+
         filt_data, new_filter_state = apply_filter(
             rx_samples, self.filt, zi=self.filter_state
         )
@@ -40,6 +42,7 @@ class PulsedDopplerRxProcessor(RxProcessor):
         downconversion = np.exp(-1j * phases)
         baseband_data = filt_data * downconversion
         return baseband_data
+
 
 class PulsedDopplerScheme(BurstEnvelopeMixin, SignalScheme):
     scheme_type = "pulsed_doppler"
@@ -66,6 +69,12 @@ class PulsedDopplerScheme(BurstEnvelopeMixin, SignalScheme):
             self._pulse_samples, int(round(self.pri_s * self.samp_rate))
         )
         self._init_calibration(samp_rate, calibration or {})
+
+    def _recompute_rate_derived(self) -> None:
+        self._pulse_samples = max(1, int(round(self.pulse_width_s * self.samp_rate)))
+        self._pri_samples = max(
+            self._pulse_samples, int(round(self.pri_s * self.samp_rate))
+        )
 
     def get_num_tx_channels(self) -> int:
         return self.num_tx
@@ -108,9 +117,12 @@ class PulsedDopplerScheme(BurstEnvelopeMixin, SignalScheme):
 
     def create_rx_processor(
         self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
-    ) -> Optional[RxProcessor]:
-        return PulsedDopplerRxProcessor(samp_rate, self.if_freq[tx_idx] if tx_idx < len(self.if_freq) else self.doppler_if_hz, if_filter_bw)
-
+    ) -> RxProcessor | None:
+        return PulsedDopplerRxProcessor(
+            samp_rate,
+            self.if_freq[tx_idx] if tx_idx < len(self.if_freq) else self.doppler_if_hz,
+            if_filter_bw,
+        )
 
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":

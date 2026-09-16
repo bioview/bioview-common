@@ -1,10 +1,4 @@
-"""BIOPAC parameters live in two places and both have to be written.
-
-The backend reads ``channels`` (and the rest) out of the nested ``hardware``
-entry in preference to the top level, but the settings panel only ever set the
-top-level value. Enabling a channel in the UI therefore did nothing the next
-time the device was initialized from that configuration.
-"""
+"""BIOPAC parameters live in two places and both have to be written."""
 
 from bioview_common.datatypes.configuration.biopac import BiopacConfiguration
 

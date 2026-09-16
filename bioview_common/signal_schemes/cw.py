@@ -6,9 +6,10 @@ import math
 
 import numpy as np
 
-from .base import SignalScheme, RxProcessor
-from .calibration import BurstEnvelopeMixin
 from bioview_common.utils import apply_filter, get_filter
+
+from .base import RxProcessor, SignalScheme
+from .calibration import BurstEnvelopeMixin
 
 
 class CwRxProcessor(RxProcessor):
@@ -16,7 +17,7 @@ class CwRxProcessor(RxProcessor):
         self.samp_rate = samp_rate
         self.if_freq = if_freq
         self.accumulated_phase = 0.0
-        
+
         low_cutoff = if_freq - if_filter_bw / 2
         high_cutoff = if_freq + if_filter_bw / 2
         self.filt = get_filter(
@@ -30,7 +31,7 @@ class CwRxProcessor(RxProcessor):
     def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
         if len(rx_samples) == 0:
             return np.array([])
-            
+
         filt_data, new_filter_state = apply_filter(
             rx_samples, self.filt, zi=self.filter_state
         )
@@ -43,7 +44,6 @@ class CwRxProcessor(RxProcessor):
         downconversion = np.exp(-1j * phases)
         baseband_data = filt_data * downconversion
         return baseband_data
-
 
 
 class CwScheme(BurstEnvelopeMixin, SignalScheme):
@@ -71,22 +71,27 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
         return self.tx_amplitude[tx_idx]
 
     def _get_buf_size(self, freq: float) -> int:
-        return int(
-            self.samp_rate * freq / (math.gcd(int(self.samp_rate), int(freq)) ** 2)
-        )
+        """Samples in one whole cycle of ``freq`` at this sample rate."""
+        fs, f = int(round(self.samp_rate)), int(round(abs(freq)))
+        divisor = math.gcd(fs, f)
+        if divisor == 0:
+            return 0
+        return fs // divisor
 
     def _get_lcm(self, a: int, b: int) -> int:
         return int(a * b / math.gcd(int(a), int(b)))
 
     def cycle_length(self) -> int | None:
+        """Samples after which every Tx tone repeats together."""
         if self._cal_enabled:
             return None
-        if len(self.if_freq) == 1:
-            return self._get_buf_size(self.if_freq[0])
-        return self._get_lcm(
-            self._get_buf_size(self.if_freq[0]),
-            self._get_buf_size(self.if_freq[1]),
-        )
+        periods = [self._get_buf_size(freq) for freq in self.if_freq]
+        if not periods or any(period <= 0 for period in periods):
+            return None
+        common = periods[0]
+        for period in periods[1:]:
+            common = self._get_lcm(common, period)
+        return common
 
     def tx_phase_at(self, tx_idx: int, sample_idx: int) -> float:
         phase_deg = self.tx_phase_deg[tx_idx]
@@ -114,9 +119,8 @@ class CwScheme(BurstEnvelopeMixin, SignalScheme):
 
     def create_rx_processor(
         self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
-    ) -> Optional[RxProcessor]:
+    ) -> RxProcessor | None:
         return CwRxProcessor(samp_rate, self.if_freq[tx_idx], if_filter_bw)
-
 
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":

@@ -20,7 +20,6 @@ def test_a_missing_uhd_is_explained_rather_than_echoed():
     assert issue["level"] == "error"
     assert "UHD" in issue["title"]
     assert "install" in issue["message"].lower()
-    # The raw error is kept for a bug report, not shown as the explanation.
     assert issue["detail"] == "No module named 'uhd'"
 
 

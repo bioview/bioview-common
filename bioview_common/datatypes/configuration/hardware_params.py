@@ -13,11 +13,7 @@ GLOBAL_RX_PARAMS = frozenset({"rx_gain"})
 def build_global_mapping(
     hardware: dict[str, dict], kind: str = "tx"
 ) -> tuple[dict[int, tuple[str, int]], dict[str, int], list[float]]:
-    """Flatten per-device channels into global indices.
-
-    Returns ``(index -> (device_name, local_index), device_name -> offset,
-    per-global-channel gains)``.
-    """
+    """Flatten per-device channels into global indices."""
     key = f"{kind}_channels"
     gain_key = f"{kind}_gain"
 
@@ -61,12 +57,7 @@ def get_global_values(
     param: str,
     group_defaults: dict | None = None,
 ) -> list:
-    """Read a parameter as a flat global list (matches backend channel order).
-
-    Tx and Rx read identically -- the direction only matters when values are
-    written back, where the channel count comes from ``tx_channels`` or
-    ``rx_channels``.
-    """
+    """Read a parameter as a flat global list (matches backend channel order)."""
     group_defaults = group_defaults or {}
     if not hardware:
         raw = group_defaults.get(param)
@@ -93,14 +84,7 @@ def apply_global_values_to_hardware(
     group_defaults: dict | None = None,
     kind: str = "tx",
 ) -> list:
-    """Write a flat global list back into nested hardware entries.
-
-    ``kind`` picks the channel list the slices are cut against: a group's Tx
-    and Rx channel counts differ per radio, so a Tx write must not be sliced
-    with Rx widths.
-
-    Returns the list actually applied.
-    """
+    """Write a flat global list back into nested hardware entries."""
     group_defaults = group_defaults or {}
     default_raw = group_defaults.get(param)
     default_fill = (
@@ -124,11 +108,7 @@ def update_device_param(
     idx: int | None = None,
     kind: str = "tx",
 ) -> list:
-    """Update a device config's Tx or Rx param; returns the flat global list.
-
-    A group with no ``hardware`` block keeps the value at group level; one with
-    hardware has it split back across the radios by channel count.
-    """
+    """Update a device config's Tx or Rx param; returns the flat global list."""
     hardware = device_cfg.get_param("hardware")
     defaults = device_cfg.to_dict()
 

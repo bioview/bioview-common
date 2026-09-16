@@ -7,12 +7,7 @@ from bioview_common.signal_schemes.dpic import DpicBalancer, DpicChannel
 
 
 def _channel(device, inject_tx, log=None, hold=0.0):
-    """A loop whose metric is minimal at phase 0 / amplitude 0.
-
-    ``log`` records which thread touched which radio, ``hold`` makes each
-    measurement slow enough that a serial run is distinguishable from a
-    parallel one.
-    """
+    """A loop whose metric is minimal at phase 0 / amplitude 0."""
     state = {"phase": 0.0, "amp": 0.0}
 
     def read_metric():
@@ -77,13 +72,7 @@ def test_results_come_back_in_the_order_given():
 
 
 def test_a_radio_is_only_ever_driven_from_one_thread():
-    """A radio's loops must never be measured from two threads at once.
-
-    The number of *distinct* threads is deliberately not asserted: the pool
-    reuses an idle worker, so three lanes that each finish instantly can
-    legitimately share one. What matters is that no single radio is ever
-    touched from more than one.
-    """
+    """A radio's loops must never be measured from two threads at once."""
     log = []
     channels = [_channel("a", 1, log), _channel("b", 3, log), _channel("c", 5, log)]
     _fast_balancer().balance_all(channels)

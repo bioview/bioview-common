@@ -8,7 +8,6 @@ from .cw import CwScheme
 from .fmcw import FmcwScheme
 from .pulsed_doppler import PulsedDopplerScheme
 
-from typing import List 
 
 def scheme_from_config(
     samp_rate: float,
@@ -26,8 +25,6 @@ def scheme_from_config(
     if len(tx_phase) < num_tx:
         tx_phase = list(tx_phase) + [0.0] * (num_tx - len(tx_phase))
 
-    # ``inject_channels`` is global Tx indexing but a scheme sees only its own
-    # device, so always translate -- the default [0] included.
     calibration = dict(config.get("calibration", {}))
     inject = calibration.get("inject_channels", [0])
     calibration["inject_channels"] = [
@@ -64,9 +61,9 @@ def scheme_from_config(
             if_freq=if_freq,
             calibration=calibration,
         )
-    
-    if_freq: List[float] = config.get("if_freq", [100e3] * num_tx)
-    
+
+    if_freq: list[float] = config.get("if_freq", [100e3] * num_tx)
+
     if len(if_freq) < num_tx:
         if_freq = list(if_freq) + [if_freq[-1]] * (num_tx - len(if_freq))
     return CwScheme(

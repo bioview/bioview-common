@@ -20,20 +20,10 @@ sound card offers by default.
 BASE_MICROPHONE_CONFIG = {
     "samp_rate": 16000,
     "channels": 1,
-    # Host input to open. ``"default"`` takes whatever PortAudio calls the
-    # default input; anything else is matched against the discovered device
-    # names (substring, case-insensitive) and then against their indices.
     "device": "default",
-    # Frames per PortAudio callback. Sets capture latency and chunk size; 0
-    # lets PortAudio choose, which on Windows/WASAPI is usually ~10 ms.
     "blocksize": 0,
-    # Applied to the captured signal before it is emitted. A line-level input
-    # at conversational distance is often 20-30 dB down on full scale.
     "gain": 1.0,
     "labels": None,
-    # Present for parity with the other devices. Audio is emitted at full rate:
-    # saving is fed from the display stream, so decimating for display would
-    # decimate the recording too.
     "disp_ds": 1,
     "save_ds": 1,
     "hardware": None,
@@ -52,8 +42,6 @@ class MicrophoneConfiguration(BaseConfig):
         self.device_type = DeviceType.MICROPHONE.value
         self.absolute_channel_nums = list(range(int(self.get_channel_count())))
 
-    #: Read from the nested ``hardware`` entry in preference to the top level,
-    #: so a UI edit has to be written to both. Mirrors BiopacConfiguration.
     _HARDWARE_MIRRORED_PARAMS = (
         "samp_rate",
         "channels",
@@ -64,12 +52,7 @@ class MicrophoneConfiguration(BaseConfig):
     )
 
     def get_channel_count(self) -> int:
-        """Number of captured channels.
-
-        ``channels`` is a count here, not the enable mask BIOPAC uses: a sound
-        card's channels are not individually selectable, so a list is accepted
-        only so a config written against the BIOPAC shape still loads.
-        """
+        """Number of captured channels."""
         raw = getattr(self, "channels", 1)
         if isinstance(raw, list | tuple):
             enabled = sum(1 for entry in raw if entry)

@@ -1,5 +1,3 @@
-# Default rate (Hz) at which a data source is rendered on screen. The streaming
-# pipeline decimates incoming data down to roughly this rate for display.
 DEFAULT_DISPLAY_FREQUENCY = 200.0
 
 
@@ -16,8 +14,6 @@ class DataSource:
         self.label = label
         self.disp_freq = disp_freq
 
-    # Identity is (group_id, channel); `label` is a mutable display name and is
-    # deliberately excluded, since sources are dict keys for routing.
     def __eq__(self, other):
         if not isinstance(other, DataSource):
             return False
@@ -30,11 +26,7 @@ class DataSource:
         return self.get_display_label()
 
     def get_display_label(self) -> str:
-        """Name shown in the UI: the device group followed by the stream label.
-
-        Channel labels are only unique within a device, so a bare label is
-        ambiguous as soon as two devices stream at once.
-        """
+        """Name shown in the UI: the device group followed by the stream label."""
         if not self.group_id:
             return str(self.label)
         return f"{self.group_id}: {self.label}"
@@ -43,19 +35,33 @@ class DataSource:
         """Display refresh frequency (Hz) used to size plot buffers."""
         return getattr(self, "disp_freq", DEFAULT_DISPLAY_FREQUENCY)
 
+    OPTIONAL_FIELDS = ("tx_idx", "rx_idx", "tx_label", "rx_label", "component")
+
     def to_dict(self):
-        return {
+        payload = {
             "group_id": self.group_id,
             "channel": self.channel,
             "label": self.label,
             "disp_freq": self.get_disp_freq(),
         }
+        for field in self.OPTIONAL_FIELDS:
+            value = getattr(self, field, None)
+            if value is not None:
+                payload[field] = value
+        if getattr(self, "is_cal_ref", False):
+            payload["is_cal_ref"] = True
+        return payload
 
     @classmethod
     def from_dict(cls, data_dict):
-        return cls(
+        source = cls(
             group_id=data_dict.get("group_id"),
             channel=data_dict.get("channel"),
             label=data_dict.get("label"),
             disp_freq=data_dict.get("disp_freq", DEFAULT_DISPLAY_FREQUENCY),
         )
+        for field in cls.OPTIONAL_FIELDS:
+            if data_dict.get(field) is not None:
+                setattr(source, field, data_dict[field])
+        source.is_cal_ref = bool(data_dict.get("is_cal_ref", False))
+        return source

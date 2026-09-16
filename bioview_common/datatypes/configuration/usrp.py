@@ -27,6 +27,13 @@ BASE_USRP_CONFIG = {
     "clock": "internal",
     "pps": "internal",
     "if_filter_bw": 5e3,
+    "if_filter_type": "ellip",
+    "if_filter_order": 2,
+    # Display-only post-demodulation filter. Never touches the saved stream.
+    "disp_filter_btype": "off",
+    "disp_filter_low": 0.5,
+    "disp_filter_high": 40.0,
+    "disp_filter_order": 2,
     "save_ds": 100,
     "disp_ds": 10,
     "signal_scheme": "cw",
@@ -45,12 +52,8 @@ BASE_USRP_CONFIG = {
     "dpic_balance": {
         "auto_on_start": False,
         "amp_target": 0.5,
-        # Digital phase/amplitude changes land on the next Tx buffer, so the
-        # settle is short; the real wait is for fresh Rx chunks.
         "settle_time_s": 0.02,
         "time_budget_s": 120.0,
-        # Grid resolution. The coarse steps are the LabVIEW VI's 60 phase and
-        # 20 amplitude points; the fine steps sweep +/- one coarse step.
         "coarse_phase_step_deg": 6.0,
         "coarse_amp_step": 0.05,
         "coarse_probe_amplitude": 0.1,
@@ -82,21 +85,15 @@ class USRPConfiguration(BaseConfig):
     def __init__(self, config_dict: dict):
         self.cfg_type = SUPPORTED_CONFIGURATION_TYPES.USRP
 
-        # Initialize using default values
         super().__init__(BASE_USRP_CONFIG)
 
-        # Update with provided values. Merged, not replaced: a file naming
-        # only `calibration.enabled` must not drop the rest of the block.
         for key, value in merged_with_defaults(
             BASE_USRP_CONFIG, config_dict or {}
         ).items():
             setattr(self, key, value)
 
-        # Set device type. TODO: Remove
         self.device_type = DeviceType.USRP.value
 
-        # Default absolute channel map for a single device with paired Tx/Rx;
-        # multi-device MIMO must override it.
         self.absolute_channel_nums = self.tx_channels
 
 

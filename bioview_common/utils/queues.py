@@ -1,9 +1,4 @@
-"""Bounded-queue put policies.
-
-:func:`put_or_drop` waits briefly then drops the new item (save paths);
-:func:`put_drop_oldest` evicts the oldest (display paths). Both return False
-when an item was dropped, so callers can count rather than log.
-"""
+"""Bounded-queue put policies."""
 
 from __future__ import annotations
 
@@ -13,10 +8,7 @@ from typing import Any
 
 
 def put_or_drop(q, item: Any, timeout: float = 0.1) -> bool:
-    """Block up to ``timeout`` for room, then drop ``item``.
-
-    Returns False when the item was dropped.
-    """
+    """Block up to ``timeout`` for room, then drop ``item``."""
     if q is None:
         return False
     try:

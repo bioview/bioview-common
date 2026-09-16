@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import numpy as np
 
-from .base import SignalScheme, RxProcessor
-from .calibration import BurstEnvelopeMixin
 from bioview_common.utils import apply_filter, get_filter
+
+from .base import RxProcessor, SignalScheme
+from .calibration import BurstEnvelopeMixin
 
 
 class FmcwRxProcessor(RxProcessor):
-    def __init__(self, scheme: "FmcwScheme", tx_idx: int, if_freq: float, if_filter_bw: float):
+    def __init__(
+        self, scheme: FmcwScheme, tx_idx: int, if_freq: float, if_filter_bw: float
+    ):
         self.scheme = scheme
         self.samp_rate = scheme.samp_rate
         self.if_freq = if_freq
         self.accumulated_phase = 0.0
         self.accumulated_sample_idx = 0
-        
+
         low_cutoff = if_freq - if_filter_bw / 2
         high_cutoff = if_freq + if_filter_bw / 2
         self.filt = get_filter(
@@ -30,7 +33,7 @@ class FmcwRxProcessor(RxProcessor):
     def process_chunk(self, rx_samples: np.ndarray) -> np.ndarray:
         if len(rx_samples) == 0:
             return np.array([])
-            
+
         filt_data, new_filter_state = apply_filter(
             rx_samples, self.filt, zi=self.filter_state
         )
@@ -42,11 +45,13 @@ class FmcwRxProcessor(RxProcessor):
 
         downconversion = np.exp(-1j * phases)
         baseband_data = filt_data * downconversion
-        
-        ref = self.scheme.get_dechirp_reference(len(filt_data), self.accumulated_sample_idx)
+
+        ref = self.scheme.get_dechirp_reference(
+            len(filt_data), self.accumulated_sample_idx
+        )
         baseband_data = baseband_data * ref
         self.accumulated_sample_idx += len(filt_data)
-        
+
         return baseband_data
 
 
@@ -74,6 +79,11 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
         self._period_samples = self._chirp_samples + self._idle_samples
         self._k = (self.chirp_end_hz - self.chirp_start_hz) / self.chirp_duration_s
         self._init_calibration(samp_rate, calibration or {})
+
+    def _recompute_rate_derived(self) -> None:
+        self._chirp_samples = max(1, int(round(self.chirp_duration_s * self.samp_rate)))
+        self._idle_samples = max(0, int(round(self.idle_time_s * self.samp_rate)))
+        self._period_samples = self._chirp_samples + self._idle_samples
 
     def get_num_tx_channels(self) -> int:
         return self.num_tx
@@ -123,9 +133,8 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
 
     def create_rx_processor(
         self, tx_idx: int, if_freq: float, if_filter_bw: float, samp_rate: float
-    ) -> Optional[RxProcessor]:
+    ) -> RxProcessor | None:
         return FmcwRxProcessor(self, tx_idx, if_freq, if_filter_bw)
-
 
     def update_param(self, param: str, value) -> None:
         if param == "tx_amplitude":
@@ -141,6 +150,4 @@ class FmcwScheme(BurstEnvelopeMixin, SignalScheme):
             )
             self.set_calibration_enabled(enabled)
         else:
-            # Calibration params are shared by every scheme; without this the
-            # calibration overlay could only be toggled on CW.
             self.handle_common_param(param, value)

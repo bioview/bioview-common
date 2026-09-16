@@ -8,7 +8,7 @@ from .config import (
     configuration_for_cfg_type,
     register_device_configuration,
 )
-from .experiment import ExperimentConfiguration
+from .experiment import FEATURE_DEFAULTS, ExperimentConfiguration
 from .microphone import MicrophoneConfiguration
 from .usrp import USRPConfiguration
 
@@ -32,12 +32,11 @@ def parse_configuration_file(file_path: str) -> dict:
     except (json.JSONDecodeError, FileNotFoundError, PermissionError):
         return {}
 
-    # For valid configurations, convert them into the appropriate object and return
     parsed = {}
     for k, v in data.items():
         config_cls = get_configuration_callback(v.get("type", None))
         if config_cls is None:
-            continue  # Drop all unsupported types
+            continue
 
         parsed[k] = config_cls.from_dict(v)
 
@@ -50,6 +49,7 @@ __all__ = [
     "register_device_configuration",
     "SUPPORTED_CONFIGURATION_TYPES",
     "ExperimentConfiguration",
+    "FEATURE_DEFAULTS",
     "USRPConfiguration",
     "BiopacConfiguration",
     "MicrophoneConfiguration",
